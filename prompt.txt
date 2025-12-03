@@ -1,0 +1,26 @@
+Vou realizar um trabalho prático para a cadeira de Sistemas Distribuídos.
+O enunciado do trabalho encontra-se em Enunciado.txt na diretoria TrabalhoPratico.
+Para este trabalho, terei de seguir algumas regras como a não utilização de concurrent hash maps, semaforos,vectors, etc... . Apenas o que foi lecionado nas aulas teóricas-práticas é que posso utilizar.
+Desta maneira, para teres ideia do que foi lecionado (threads, locks, barreiras, sockets,..) quero que analises todas as 7 diretorias (Guiao1-Guiao7) para compreenderes o que foi feito e como foi feito, para poder aplicar aqui neste trabalho prático.
+Este trabalho irei querer dividir em várias fases, de forma sequencial como aparece no enunciado, ou seja, iremos começar pela Autenticação e registo do Utilizador.
+Como podes também verificar pelo enunciado, tem uma secção relativa à utilização de IA que quero que leias (já irás ler tudo obviamente) para poderes perceber a tua utilidade, já que na avaliação irão correr verificação de IA e por isso tenho de ser eu a escrever o código e não tu. Desta maneira, à medida que o trabalho vai sendo feito quero que me forneças ideias de como implementar certos aspetos e sempre que pedir ajuda irás ajudar-me.
+Já falei com um professor meu sobre a arquitetura geral deste projeto, e a solução que me foi sugerida foi a seguinte:
+Ter no mínimo dois Clients (um ClienteTestes para testes e avaliação de desempenho e outra ClienteInterativo que será por terminal provavelmente) que interagem com um LibCliente que possui os métodos para enviar a informação e SÓ este é que irá comunicar com o servidor.
+Uma dica que me foi dado foi sempre que no enunciado aparecer algo do género "fica bloqueado até acontecer" é provável que tenha de usar uma barreira, como já analisaste os guiões já deves ter percebido como implemento.
+Além disso, só existe uma socket para o servidor mas existem várias threads a fazer pedidos (este problema ainda não é para ser abordado agora porque ainda não dei nas aulas)
+Relativamente ao relatório que terei de fazer, seria bom colocar diagramas dos dados, da arquitetura, e explicar as decisões tomadas.
+Relativamente à persistência, podemos guardar os ficherios em disco e é suposto ser algo simples.
+Relativamente à autenticação só precisamos de garantir estritamente o que está no relatório, nada de muito complexo.
+No Ponto 7, Persistência de séries temporais e limite destas em memória, seria interessante perceber o que fica em disco  e o que fica em memória e fazer swaps caso seja necessário.
+Por fim, eu sei que esta prompt que te envio é longa mas quero que prestes atenção A TUDO O QUE DISSE em cima para não ter problemas durante a realização do trabalho.
+Tendo em conta que vou começar agora pela autenticação, como achas que devo começar a nível de ficheiros a criar e código a implementar.
+
+
+Compilar- 
+javac src/apps/ClienteInterativo.java src/apps/ClienteTestes.java src/client/ClientLib.java src/common/User.java src/protocol/Message.java src/server/Database.java src/server/Server.java  src/server/UserManager.java 
+
+Executar Cliente -
+java -cp src apps.ClienteInterativo
+
+Executar Server - 
+java -cp src server.Server

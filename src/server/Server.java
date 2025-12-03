@@ -1,0 +1,147 @@
+package server;
+import common.User;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.EOFException;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
+
+class ServerWorker implements Runnable {
+    private Socket socket;
+    private UserManager userManager;
+    private boolean autenticado = false; //temos este bool já que o cliente só pode fazer operações se tiver autenticado
+    private String userAtual = null; //
+    private Database database;
+
+
+    public ServerWorker(Socket socket, UserManager userManager, Database database) {
+        this.socket = socket;
+        this.userManager = userManager;
+        this.database = database;
+    }
+
+    @Override
+    public void run() { 
+        try {
+            DataInputStream in = new DataInputStream(socket.getInputStream());
+            DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+            while(true) {
+                byte tipoOperacao = in.readByte();
+                if (tipoOperacao == protocol.Message.REGISTAR) { //podia dizer diretamente == 1 mas se tiver uma constante melhor já que é mais legível
+                    String username = in.readUTF();
+                    String password = in.readUTF(); //readUTF lê uma string que foi escrita com writeUTF
+
+                    User novoUser = new User(username, password);
+                    boolean registouComSucesso = userManager.registarUser(novoUser);
+
+                    if(registouComSucesso) {
+                        out.writeByte(protocol.Message.STATUS_SUCCESSO);
+                        out.writeUTF("Registo efetuado com sucesso"); 
+                    } else {
+                        out.writeByte(protocol.Message.STATUS_FALHOU);
+                        out.writeUTF("Username já existe"); 
+
+                    }
+                    out.flush();
+                }
+                else if (tipoOperacao == protocol.Message.LOGIN) { // ou seja return ==2
+                    String username = in.readUTF();
+                    String password = in.readUTF(); //readUTF lê uma string que foi escrita com writeUTF
+
+                    boolean loginComSucesso = userManager.validarUser(username, password);
+
+                    if(loginComSucesso) {
+                        autenticado = true;
+                        userAtual = username;
+                        out.writeByte(protocol.Message.STATUS_SUCCESSO);
+                        out.writeUTF("Login efetuado com sucesso"); 
+                    } else {
+                        out.writeByte(protocol.Message.STATUS_FALHOU);
+                        out.writeUTF("Username ou Password errados"); 
+
+                    }
+                    out.flush();
+                }
+
+                else if (tipoOperacao == protocol.Message.ADICIONAR_EVENTO) { //
+                    if(!autenticado) {
+                        out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
+                        out.writeUTF("Erro: Não autenticado. Por favor faça login ou registe-se primeiro.");
+                        out.flush();
+                        continue;
+                    }
+                    String produto = in.readUTF();
+                    int quantidade = in.readInt();
+                    double preco = in.readDouble();
+
+                    database.adicionarEvento(produto, quantidade, preco);
+
+                    out.writeByte(protocol.Message.STATUS_SUCCESSO);
+                    out.writeUTF("Evento adicionado com sucesso");
+                    out.flush();
+                }
+                else if (tipoOperacao == protocol.Message.NOVO_DIA) { //
+                    if(!autenticado) {
+                        out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
+                        out.writeUTF("Erro: Não autenticado. Por favor faça login ou registe-se primeiro.");
+                        out.flush();
+                        continue;
+                    }
+
+                    database.novoDia();
+                    out.writeByte(protocol.Message.STATUS_SUCCESSO);
+                    out.writeUTF("Avançou para o próximo dia com sucesso");
+                    out.flush();
+                }
+
+            }
+        } catch (EOFException e) {
+            System.out.println("Cliente terminou a conexão: " + socket.getRemoteSocketAddress());
+        } catch (IOException e) {
+            System.err.println("Ocorreu algum erro com o cliente: " + socket.getRemoteSocketAddress());
+            e.printStackTrace();
+        }
+        finally {
+            try {
+                socket.close();
+            } catch (IOException e) {
+                System.err.println("Erro ao fechar a socket: " + socket.getRemoteSocketAddress());
+                e.printStackTrace();
+            }
+        }
+    }
+}
+
+
+
+public class Server {
+    public static void main(String[] args) throws IOException {
+        ServerSocket serverSocket = new ServerSocket(12345);
+        //print de debug da porta onde o servidor está a correr
+        System.out.println("Server está na porta " + serverSocket.getLocalPort());
+
+        //popular com alguns users para iniciais
+        UserManager userManager = new UserManager();
+        userManager.registarUser(new User("Francisco","francisco123"));
+        userManager.registarUser(new User("Nuno","nuno123"));
+        userManager.registarUser(new User("Carlos","carlos123"));
+
+        //print para verificar se os users forma todos registados com sucesso e carregados
+        System.out.println("Foram carregados " + userManager.getQtdUsers() + " users.");
+
+        //criar a base de dados partilhada por todos os workers
+        Database database = new Database();
+        while (true) { 
+            Socket clientSocket = serverSocket.accept();
+            //print para verificar que houve uma nova conexão
+            System.out.println("Nova conexão de " + clientSocket.getRemoteSocketAddress());
+
+            Thread worker = new Thread(new ServerWorker(clientSocket, userManager, database));           
+            worker.start();
+        }
+    }
+    
+
+
+}
