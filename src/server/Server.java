@@ -94,6 +94,75 @@ class ServerWorker implements Runnable {
                     out.writeUTF("Avançou para o próximo dia com sucesso");
                     out.flush();
                 }
+                else if (tipoOperacao == protocol.Message.QUANTIDADE_VENDAS) {
+                    if (!autenticado) {
+                        out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
+                        out.writeUTF("Não autenticado");
+                        out.flush();
+                        continue;
+                    }
+                    
+                    String produto = in.readUTF();
+                    int dias = in.readInt();
+                    
+                    int resultado = database.quantidadeVendas(produto, dias);
+                    
+                    out.writeByte(protocol.Message.STATUS_SUCCESSO);
+                    out.writeInt(resultado);
+                    out.flush();
+                }
+                else if (tipoOperacao == protocol.Message.VOLUME_VENDAS) {
+                    if (!autenticado) {
+                        out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
+                        out.writeUTF("Não autenticado");
+                        out.flush();
+                        continue;
+                    }
+                    
+                    String produto = in.readUTF();
+                    int dias = in.readInt();
+                    
+                    double resultado = database.volumeVendas(produto, dias);
+                    
+                    out.writeByte(protocol.Message.STATUS_SUCCESSO);
+                    out.writeDouble(resultado);
+                    out.flush();
+                }
+                else if (tipoOperacao == protocol.Message.PRECO_MEDIO) {
+                    if (!autenticado) {
+                        out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
+                        out.writeUTF("Não autenticado");
+                        out.flush();
+                        continue;
+                    }
+                    
+                    String produto = in.readUTF();
+                    int dias = in.readInt();
+                    
+                    double resultado = database.precoMedio(produto, dias);
+                    
+                    out.writeByte(protocol.Message.STATUS_SUCCESSO);
+                    out.writeDouble(resultado);
+                    out.flush();
+                }
+                else if (tipoOperacao == protocol.Message.PRECO_MAXIMO) {
+                    if (!autenticado) {
+                        out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
+                        out.writeUTF("Não autenticado");
+                        out.flush();
+                        continue;
+                    }
+                    
+                    String produto = in.readUTF();
+                    int dias = in.readInt();
+                    
+                    double resultado = database.precoMaximo(produto, dias);
+                    
+                    out.writeByte(protocol.Message.STATUS_SUCCESSO);
+                    out.writeDouble(resultado);
+                    out.flush();
+                }
+                
 
             }
         } catch (EOFException e) {

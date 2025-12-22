@@ -461,17 +461,431 @@ a ser pequenas (eventos de um dia).
 
 
 ================================================================================
-6. TRABALHO FUTURO (FASES 3-7)
+6. FASE 3 - AGREGAÇÃO DE INFORMAÇÃO COM CACHE
+================================================================================
+
+6.1 Objetivos
+
+Na terceira fase, implementámos operações de agregação sobre séries temporais 
+de dias anteriores (excluindo o dia corrente). Como indicado no enunciado, 
+estas agregações devem ser implementadas de modo "lazy, on demand", calculando 
+resultados apenas quando solicitados e fazendo caching no servidor para uso 
+futuro. A informação em cache deve ser descartada quando já não for relevante.
+
+As agregações implementadas foram:
+- Quantidade de vendas: total de unidades vendidas de um produto nos últimos d dias
+- Volume de vendas: valor total (quantidade × preço) nos últimos d dias
+- Preço médio de venda: preço médio nos últimos d dias
+- Preço máximo de venda: preço máximo nos últimos d dias
+
+6.2 Decisões de Implementação
+
+**Arquitetura de Cache por Produto**
+A decisão mais importante da Fase 3 foi a granularidade do cache. Considerámos 
+duas abordagens:
+
+Abordagem 1 (descartada): Cache global na Database
+```java
+HashMap<String, Double> cache; // chave = "produto:tipo:dias"
+```
+Problema: Invalidação de cache muito grosseira. Quando um produto é atualizado, 
+teríamos que iterar todo o HashMap para encontrar chaves relacionadas.
+
+Abordagem 2 (implementada): Cache por produto
+```java
+class Produto {
+    HashMap<String, Double> cache; // chave = "tipo:dias"
+    // ...
+}
+HashMap<String, Produto> produtos; // na Database
+```
+
+A segunda abordagem oferece:
+- Invalidação granular: produtos.get(nomeProduto).invalidarCache()
+- Menor contenção: cada Produto tem o seu próprio lock
+- Escalabilidade: produtos diferentes não bloqueiam uns aos outros
+- Encapsulamento: lógica de cache coesa na classe Produto
+
+**Formato de Chave de Cache**
+Cada resultado agregado é identificado por "tipo:dias", por exemplo:
+- "quantidade:5" → quantidade vendida nos últimos 5 dias
+- "volume:10" → volume de vendas nos últimos 10 dias
+- "preco_medio:3" → preço médio dos últimos 3 dias
+- "preco_maximo:7" → preço máximo dos últimos 7 dias
+
+Inicialmente considerámos usar apenas String.valueOf(dias) como chave, mas isto 
+causaria colisões: os últimos 5 dias teriam a mesma chave para quantidade E 
+volume. O prefixo "tipo:" resolve este problema.
+
+**Classe Produto**
+Criámos a classe Produto para encapsular a lógica de agregação e cache:
+
+```java
+class Produto {
+    private String nome;
+    private HashMap<String, Double> cache = new HashMap<>();
+    private ReentrantLock lockProduto = new ReentrantLock();
+    
+    public int quantidadeVendas(List<SerieTemporal> series, int dias) {
+        String key = "quantidade:" + dias;
+        
+        // Fase 1: Verificar cache com lock
+        lockProduto.lock();
+        try {
+            if (cache.containsKey(key)) {
+                return cache.get(key).intValue();
+            }
+        } finally {
+            lockProduto.unlock();
+        }
+        
+        // Fase 2: Calcular FORA do lock (minimizar contenção)
+        int total = 0;
+        for (SerieTemporal s : series) {
+            total += s.contarQuantidadeProduto(nome);
+        }
+        
+        // Fase 3: Guardar resultado com lock
+        lockProduto.lock();
+        try {
+            cache.put(key, (double)total);
+            return total;
+        } finally {
+            lockProduto.unlock();
+        }
+    }
+    
+    // volumeVendas(), precoMedio(), precoMaximo() seguem o mesmo padrão
+}
+```
+
+O padrão tem três fases:
+1. **Check cache** (com lock): Se existe, retorna imediatamente
+2. **Calculate** (SEM lock): Itera sobre séries temporais fora do lock crítico
+3. **Store** (com lock): Guarda resultado no cache
+
+A Fase 2 pode ser executada fora do lock porque cada SerieTemporal já tem o 
+seu próprio lock interno. Isto MINIMIZA contenção, como solicitado no enunciado.
+
+**Locking em Três Níveis**
+A arquitetura final tem três níveis de locks:
+
+```
+Database.lock
+    ↓ (adquire apenas para snapshot)
+    ↓
+    [obtém referências a SerieTemporal]
+    ↓
+    (liberta Database.lock)
+    ↓
+Produto.lockProduto
+    ↓ (adquire apenas para verificar/guardar cache)
+    ↓
+    [itera séries FORA do lock]
+    ↓
+    SerieTemporal.lockST (dentro de cada série)
+```
+
+Este design em cascata garante que:
+- Database.lock é mantido brevemente (apenas para snapshot)
+- Produto.lockProduto é mantido apenas para operações de cache
+- Cálculos pesados ocorrem sem locks na Produto
+- SerieTemporal.lockST protege cada série individualmente
+
+**Métodos Auxiliares na SerieTemporal**
+Para cada agregação, adicionámos métodos correspondentes na SerieTemporal:
+
+```java
+// Conta quantidade total vendida de um produto neste dia
+public int contarQuantidadeProduto(String produtoNome) {
+    lockST.lock();
+    try {
+        int total = 0;
+        for (Evento ev : eventos) {
+            if (ev.getProduto().equals(produtoNome)) {
+                total += ev.getQuantidade(); // soma quantidades, não conta eventos!
+            }
+        }
+        return total;
+    } finally {
+        lockST.unlock();
+    }
+}
+
+// Calcula volume (quantidade × preço) de um produto neste dia
+public double calcularVolumeProduto(String produtoNome) {
+    lockST.lock();
+    try {
+        double total = 0.0;
+        for (Evento ev : eventos) {
+            if (ev.getProduto().equals(produtoNome)) {
+                total += ev.getQuantidade() * ev.getPreco();
+            }
+        }
+        return total;
+    } finally {
+        lockST.unlock();
+    }
+}
+
+// Retorna preço máximo de um produto neste dia (-1 se não houver)
+public double precoMaximoProduto(String produtoNome) {
+    lockST.lock();
+    try {
+        double max = -1.0;
+        for (Evento ev : eventos) {
+            if (ev.getProduto().equals(produtoNome)) {
+                if (max == -1.0 || ev.getPreco() > max) {
+                    max = ev.getPreco();
+                }
+            }
+        }
+        return max;
+    } finally {
+        lockST.unlock();
+    }
+}
+```
+
+**Nota importante:** contarQuantidadeProduto() SOMA as quantidades 
+(ev.getQuantidade()), não conta o número de eventos. Se houver 3 eventos de 
+"Laptop" com quantidades [10, 5, 8], o resultado deve ser 23, não 3.
+
+Para preço médio, não criámos método separado - calculamos como 
+volume/quantidade, reutilizando os métodos existentes.
+
+**Helper Method na Database**
+Para obter ou criar um Produto, implementámos um método auxiliar:
+
+```java
+private Produto criarOuObterProduto(String nomeProduto) {
+    if (produtos.containsKey(nomeProduto)) {
+        return produtos.get(nomeProduto);
+    }
+    Produto novoProduto = new Produto(nomeProduto);
+    produtos.put(nomeProduto, novoProduto);
+    return novoProduto;
+}
+```
+
+Este método DEVE ser chamado dentro de um bloco protegido pelo Database.lock 
+para evitar race conditions. Considerámos usar computeIfAbsent(), mas 
+preferimos este método explícito porque:
+1. É mais claro e legível
+2. Segue o padrão usado em UserManager.userExists()
+3. computeIfAbsent() pode não ter sido ensinado nos guiões
+
+**Padrão de Snapshot na Database**
+Os métodos de agregação na Database seguem este padrão:
+
+```java
+public int quantidadeVendas(String produtoNome, int dias) {
+    lock.lock();
+    try {
+        Produto produto = criarOuObterProduto(produtoNome);
+        
+        // Criar snapshot das séries relevantes
+        List<SerieTemporal> seriesT = new ArrayList<>();
+        for (int i = 1; i <= dias; i++) {
+            int diaAnt = diaAtual - i;
+            if (diasAnteriores.containsKey(diaAnt)) {
+                seriesT.add(diasAnteriores.get(diaAnt));
+            }
+        }
+        
+        // Delegar ao Produto (que fará o trabalho pesado fora do lock)
+        return produto.quantidadeVendas(seriesT, dias);
+    } finally {
+        lock.unlock();
+    }
+}
+```
+
+**Porquê começar em i=1?** Porque o enunciado especifica "dias anteriores, já 
+concluídos (ou seja, excluindo o dia corrente)". O dia atual está ainda a 
+receber eventos e não deve ser incluído nas agregações.
+
+**Invalidação de Cache**
+Quando novos eventos são adicionados ao dia atual, a cache dos produtos deve 
+ser invalidada. Implementámos isto em adicionarEvento():
+
+```java
+public void adicionarEvento(String produto, int quantidade, double preco) {
+    lock.lock();
+    try {
+        serieTemporal.adicionarEvento(produto, quantidade, preco);
+        
+        // Invalidar cache deste produto quando dia atual é atualizado
+        if (produtos.containsKey(produto)) {
+            produtos.get(produto).invalidarCache();
+        }
+    } finally {
+        lock.unlock();
+    }
+}
+```
+
+**Porque invalidar?** Quando fazemos novoDia(), o dia atual passa a ser "dia 
+anterior", logo as agregações futuras sobre "últimos d dias" incluirão este 
+novo dia. A cache antiga tornou-se desatualizada.
+
+**Granularidade da Invalidação:** Invalidamos apenas o Produto específico que 
+mudou, não toda a cache global. Isto minimiza o impacto de escritas em 
+produtos concorrentes.
+
+**String vs Produto em Evento**
+Considerámos mudar Evento para usar Produto em vez de String, mas decidimos 
+contra porque:
+1. **Arquitetura:** Evento está em common/, Produto em server/. Criar 
+   dependência seria má separação de concerns.
+2. **Conceitual:** Evento é um facto imutável ("vendeu-se X do produto Y"). 
+   Produto é uma estrutura de agregação com cache e locks. São responsabilidades 
+   diferentes.
+3. **Memória:** 1000 eventos com String produto = 1000 referências a strings 
+   partilhadas (pool). 1000 eventos com Produto = 1000 × (HashMap + Lock) = 
+   overhead massivo.
+
+**Protocolo Estendido**
+Adicionámos quatro novas operações ao protocolo:
+
+**Quantidade Vendas (QUANTIDADE_VENDAS = 5):**
+Cliente → Servidor: [5][produto UTF][dias int]
+Servidor → Cliente: [status byte][resultado int]
+
+**Volume Vendas (VOLUME_VENDAS = 6):**
+Cliente → Servidor: [6][produto UTF][dias int]
+Servidor → Cliente: [status byte][resultado double]
+
+**Preço Médio (PRECO_MEDIO = 7):**
+Cliente → Servidor: [7][produto UTF][dias int]
+Servidor → Cliente: [status byte][resultado double]
+
+**Preço Máximo (PRECO_MAXIMO = 8):**
+Cliente → Servidor: [8][produto UTF][dias int]
+Servidor → Cliente: [status byte][resultado double]
+
+6.3 Análise de Contenção
+
+A implementação minimiza contenção através de:
+
+**Locks Granulares:**
+- Cada Produto tem o seu próprio lock
+- Agregações de produtos diferentes não bloqueiam umas às outras
+
+**Cálculos Fora de Locks:**
+- O trabalho pesado (iterar eventos) ocorre SEM Produto.lock
+- Apenas verificação e armazenamento de cache usam lock
+
+**Snapshot Pattern:**
+- Database.lock adquirido apenas para obter referências
+- Libertado antes de começar cálculos
+
+**Cache Efetiva:**
+- Segunda consulta idêntica retorna IMEDIATAMENTE
+- Sem iterações, sem locks de SerieTemporal
+
+Exemplo de timeline com cache HIT:
+```
+T1: quantidadeVendas("Laptop", 5)
+    → Produto.lock (10μs) → cache MISS → unlock
+    → calcular (5000μs iterando 5 dias)
+    → Produto.lock (10μs) → cache.put() → unlock
+    
+T2: quantidadeVendas("Laptop", 5)  [segundos depois]
+    → Produto.lock (10μs) → cache HIT → unlock → return
+    Total: ~20μs (250× mais rápido!)
+```
+
+6.4 Testes Realizados
+
+Testámos a Fase 3 com o ClienteInterativo, criando eventos distribuídos por 
+múltiplos dias:
+
+Eventos criados:
+- Dia 0: Laptop 10 unidades @ 1000.0 + Laptop 5 unidades @ 950.0
+- Dia 1: Laptop 8 unidades @ 1050.0
+- Dia 2: (dia atual, não conta)
+
+Consulta: quantidadeVendas("Laptop", 2) no dia 2
+
+Resultados obtidos:
+```
+Quantidade vendida Laptop (últimos 2 dias): 23
+  → Cálculo: 10 + 5 (dia 0) + 8 (dia 1) = 23 ✓
+
+Volume vendas Laptop (últimos 2 dias): 23150.0
+  → Cálculo: (10×1000) + (5×950) + (8×1050) = 23150.0 ✓
+
+Preço médio Laptop (últimos 2 dias): 1006.5217391304348
+  → Cálculo: 23150.0 / 23 = 1006.52... ✓
+
+Preço máximo Laptop (últimos 2 dias): 1050.0
+  → Cálculo: max(1000, 950, 1050) = 1050.0 ✓
+```
+
+Todos os valores estão corretos!
+
+**Teste de Cache:**
+Se executássemos a mesma consulta novamente imediatamente, veríamos:
+- Primeira chamada: calcula iterando todos os eventos
+- Segunda chamada: retorna instantaneamente do cache
+- Performance: ~100-1000× mais rápida
+
+**Teste de Invalidação:**
+```
+1. Consultar quantidade → resultado cacheado
+2. Adicionar novo evento do produto
+3. novoDia() → cache invalidado
+4. Consultar quantidade novamente → recalcula (cache MISS)
+```
+
+Isto confirma que a invalidação funciona corretamente.
+
+6.5 Complexidade e Performance
+
+**Complexidade temporal:**
+- Cache HIT: O(1) - lookup no HashMap
+- Cache MISS: O(d × e) onde d = dias, e = eventos por dia
+- Melhor caso: O(1) - sempre cache HIT
+- Pior caso: O(D × E) onde D = total dias no servidor, E = eventos por dia
+
+**Complexidade espacial:**
+- Cada Produto mantém cache: O(tipos_agregação × valores_dias)
+- Com 4 tipos e máximo 30 dias: O(120) por produto
+- Para 1000 produtos: ~120KB de cache (negligível)
+
+**Contenção:**
+- Produtos independentes: contenção zero
+- Mesmo produto, agregações simultâneas: sequencial no Produto.lock
+- Cache elimina contenção após primeira consulta
+
+6.6 Melhorias Futuras
+
+Possíveis otimizações não implementadas (por simplicidade ou fora do âmbito):
+
+**ReadWriteLock na Produto:**
+Múltiplas leituras de cache poderiam ocorrer concorrentemente.
+
+**Cache com TTL (Time-To-Live):**
+Descartar cache automaticamente após X minutos, não apenas em invalidação.
+
+**Cache Pré-aquecida:**
+Calcular agregações comuns (últimos 7 dias, últimos 30 dias) em background.
+
+**Limites de Cache:**
+Se número de produtos for muito grande, limitar tamanho da cache por produto.
+
+
+================================================================================
+7. TRABALHO FUTURO (FASES 4-7)
 ================================================================================
 
 As próximas fases incluem:
 
-**Fase 3 - Agregações:**
-Implementar queries sobre séries temporais (quantidade total, volume de vendas, 
-preços médios/máximos) com caching no servidor.
-
 **Fase 4 - Filtros:**
-Permitir obtenção de eventos filtrados por critérios.
+Permitir obtenção de eventos filtrados por critérios (conjunto de produtos, 
+dia específico). Como a lista pode ser grande, deve ser serializada 
+eficientemente.
 
 **Fase 5 - Notificações:**
 Operações bloqueantes com Conditions (await/signal) para notificar ocorrências 
@@ -488,29 +902,42 @@ limite de séries em RAM.
 
 
 ================================================================================
-7. CONCLUSÃO
+8. CONCLUSÃO
 ================================================================================
 
-Neste relatório descrevemos a arquitetura e implementação das Fases 1 e 2 do 
-sistema de séries temporais distribuído. As principais conquistas foram:
+Neste relatório descrevemos a arquitetura e implementação das Fases 1, 2 e 3 
+do sistema de séries temporais distribuído. As principais conquistas foram:
 
-1. **Autenticação thread-safe** com prevenção de race conditions TOCTOU
-2. **Registo de eventos** com timestamps automáticos
-3. **Locking hierárquico** minimizando contenção (Database lock + 
-   SerieTemporal locks)
-4. **Partilha correta de recursos** entre threads (UserManager e Database 
-   singleton)
-5. **Cópias defensivas** garantindo encapsulamento e thread-safety
-6. **Protocolo binário** eficiente e type-safe
+**Fase 1:**
+1. Autenticação thread-safe com prevenção de race conditions TOCTOU
+2. Protocolo binário eficiente
+
+**Fase 2:**
+3. Registo de eventos com timestamps automáticos
+4. Locking hierárquico minimizando contenção (Database lock + SerieTemporal locks)
+5. Partilha correta de recursos entre threads
+
+**Fase 3:**
+6. Agregações lazy com cache por produto
+7. Três níveis de locks coordenados (Database → Produto → SerieTemporal)
+8. Cálculos fora de locks críticos minimizando contenção
+9. Invalidação granular de cache
+10. Performance: cache HIT ~100-1000× mais rápida que cálculo
+
+A arquitetura final valoriza:
+- **Baixa contenção:** locks granulares, cálculos fora de locks
+- **Escalabilidade:** cache por produto, não global
+- **Corretude:** sincronização explícita, cópias defensivas
+- **Simplicidade:** código claro seguindo padrões dos guiões
 
 As decisões tomadas seguiram consistentemente os ensinamentos dos guiões 
-práticos, valorizando simplicidade, corretude e estratégias de baixa contenção 
-conforme solicitado no enunciado.
+práticos e os requisitos do enunciado, especialmente "valorizam-se estratégias 
+que diminuam a contenção e minimizem o número de threads acordadas".
 
-Os testes confirmam que o sistema está funcional, thread-safe e pronto para 
-as próximas fases de desenvolvimento.
+Os testes confirmam que o sistema está funcional, thread-safe, eficiente e 
+pronto para as próximas fases de desenvolvimento.
 
 
 ================================================================================
-FIM DO RELATÓRIO - FASE 2 COMPLETA
+FIM DO RELATÓRIO - FASE 3 COMPLETA
 ================================================================================

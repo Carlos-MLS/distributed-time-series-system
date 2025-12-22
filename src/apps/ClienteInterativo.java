@@ -44,11 +44,32 @@ public class ClienteInterativo {
                     boolean sucessoLogin = client.login(username, password);
                     if (sucessoLogin) {
                         System.out.println("Login bem-sucedido!\n");
-                            // Após o login, permitir adicionar eventos e novo dia por enquanto só para testar
-                            client.adicionarEvento("Teste", 10, 5.0);
-                            client.adicionarEvento("Teste2", 5, 3.5);
-                            client.novoDia();
-                            client.adicionarEvento("Teste3", 2, 7.0);
+                        
+                        // Adicionar eventos em múltiplos dias
+                        client.adicionarEvento("Laptop", 10, 1000.0);
+                        client.adicionarEvento("Laptop", 5, 950.0);
+                        client.novoDia();
+                        
+                        client.adicionarEvento("Laptop", 8, 1050.0);
+                        client.novoDia();
+                        
+                        // Testar agregação
+                        int qtd = client.quantidadeVendas("Laptop", 2);
+                        System.out.println("Quantidade vendida Laptop (últimos 2 dias): " + qtd);
+                        // Deve mostrar: 10+5+8 = 23
+
+                        // Testar outras agregações
+                        double vol = client.volumeVendas("Laptop", 2);
+                        System.out.println("Volume vendas Laptop (últimos 2 dias): " + vol);
+                        // Deve mostrar: (10*1000 + 5*950 + 8*1050) = 23150.0
+
+                        double medio = client.precoMedio("Laptop", 2);
+                        System.out.println("Preço médio Laptop (últimos 2 dias): " + medio);
+                        // Deve mostrar: 23150.0 / 23 = 1006.52...
+
+                        double max = client.precoMaximo("Laptop", 2);
+                        System.out.println("Preço máximo Laptop (últimos 2 dias): " + max);
+                        // Deve mostrar: 1050.0
                     } else {
                         System.out.println("Falha no login.\n");
                     }

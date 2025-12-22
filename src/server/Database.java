@@ -1,26 +1,30 @@
 package server;
-import java.util.HashMap;
+import java.util.*;
+import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 public class Database {
-    private int diaAtual;
-    private SerieTemporal serieTemporal;
-    private HashMap<Integer, SerieTemporal> diasAnteriores;
-    private ReentrantLock lock;  
+    private int diaAtual = 0;
+    private SerieTemporal serieTemporal = new SerieTemporal(0);
+    private HashMap<Integer, SerieTemporal> diasAnteriores = new HashMap<>();
+    private HashMap<String, Produto> produtos = new HashMap<>(); // key é o nome do produto
+    private ReentrantLock lock = new ReentrantLock();  
+    private Condition cond = lock.newCondition();
 
-    //Construtor
+    //Construtor vazio
     public Database() {
         this.diaAtual = 0;
         this.serieTemporal = new SerieTemporal(0);
         this.diasAnteriores = new HashMap<>();
-        this.lock = new ReentrantLock();
+        this.produtos = new HashMap<>();
     }
-
+    
+    //Construtor
     public Database(int diaAtual, SerieTemporal serieTemporal, HashMap<Integer, SerieTemporal> diasAnteriores) {
         this.diaAtual = diaAtual;
         this.serieTemporal = serieTemporal;
         this.diasAnteriores = diasAnteriores;
-        this.lock = new ReentrantLock();
+        this.produtos = new HashMap<>();
     }
 
     //Getters
@@ -49,11 +53,6 @@ public class Database {
         } finally {
             lock.unlock();
         }
-    }
-
-    //Não sei se realmente é preciso isto depois mas vou fazer na mesma para manter a consistência
-    public ReentrantLock getLock() {
-        return this.lock;
     }
 
     //Setters provavelmente não iremos usar 
@@ -92,24 +91,115 @@ public class Database {
 
     //Adiciona um evento ao dia atual
     public void adicionarEvento(String produto, int quantidade, double preco) {
-        this.lock.lock();
+        lock.lock();
         try {
-            this.serieTemporal.adicionarEvento(produto, quantidade, preco);
+            serieTemporal.adicionarEvento(produto, quantidade, preco);
+            // Invalidar a cache neste produto quando o dia atual é atualizado
+            if(produtos.containsKey(produto)) {
+                produtos.get(produto).invalidarCache();
+            }
         } finally {
-            this.lock.unlock();
+            lock.unlock();
         }
     }
 
     //Avança para o próximo dia
     public void novoDia() {
-        this.lock.lock();
+        lock.lock();
         try {
-            this.diasAnteriores.put(this.diaAtual, this.serieTemporal);
-            this.diaAtual++;
-            this.serieTemporal = new SerieTemporal(this.diaAtual);
+            diasAnteriores.put(diaAtual, serieTemporal);
+            diaAtual++;
+            serieTemporal = new SerieTemporal(diaAtual);
         } finally {
-            this.lock.unlock();
+            lock.unlock();
+        }
+    }
+
+    //Fase de agregação
+    //return da quantidade de unidadades do produtoNome nos últimos  dias
+    public int quantidadeVendas(String produtoNome, int dias) {
+        lock.lock(); 
+        try{
+            Produto produto = criarOuObterProduto(produtoNome);
+            int diaAtualAux = diaAtual;
+            List<SerieTemporal> seriesT = new ArrayList<>();
+
+            for (int i = 0; i <= dias; i++) {
+                int diaAnt = diaAtualAux - i;
+                if(diasAnteriores.containsKey(diaAnt)) {
+                    seriesT.add(diasAnteriores.get(diaAnt));
+                }
+            }   
+            //O produto é que vai iterar sobre a seriesT que passamos como arg, n é mt lógico mas funciona
+            return produto.quantidadeVendas(seriesT,dias);
+        } finally{
+            lock.unlock();
+        }
+    }
+    //função aux para obte o produto ou criar se n existir
+    private Produto criarOuObterProduto(String nomeProduto) {
+            if(produtos.containsKey(nomeProduto)) {
+                Produto p  = produtos.get(nomeProduto);
+                return p;
+            }
+            Produto newProduto = new Produto(nomeProduto);
+            produtos.put(nomeProduto,newProduto);
+            return newProduto;
+    }
+    // Calcula o volume de vendas de um produto nos últimos int dias
+    public double volumeVendas(String produtoNome, int dias) {
+        lock.lock();
+        try {
+            Produto produto = criarOuObterProduto(produtoNome);
+            List<SerieTemporal> seriesT = new ArrayList<>();
+            
+            for (int i = 1; i <= dias; i++) {
+                int diaAnt = diaAtual - i;
+                if (diasAnteriores.containsKey(diaAnt)) {
+                    seriesT.add(diasAnteriores.get(diaAnt));
+                }
+            }
+            return produto.volumeVendas(seriesT, dias);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public double precoMedio(String produtoNome, int dias) {
+        lock.lock();
+        try {
+            Produto produto = criarOuObterProduto(produtoNome);
+            List<SerieTemporal> seriesT = new ArrayList<>();
+            
+            for (int i = 1; i <= dias; i++) {
+                int diaAnt = diaAtual - i;
+                if (diasAnteriores.containsKey(diaAnt)) {
+                    seriesT.add(diasAnteriores.get(diaAnt));
+                }
+            }
+            return produto.precoMedio(seriesT, dias);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public double precoMaximo(String produtoNome, int dias) {
+        lock.lock();
+        try {
+            Produto produto = criarOuObterProduto(produtoNome);
+            List<SerieTemporal> seriesT = new ArrayList<>();
+            
+            for (int i = 1; i <= dias; i++) {
+                int diaAnt = diaAtual - i;
+                if (diasAnteriores.containsKey(diaAnt)) {
+                    seriesT.add(diasAnteriores.get(diaAnt));
+                }
+            }
+            return produto.precoMaximo(seriesT, dias);
+        } finally {
+            lock.unlock();
         }
     }
 
 }
+

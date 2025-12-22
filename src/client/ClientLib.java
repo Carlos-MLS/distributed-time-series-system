@@ -83,4 +83,68 @@ public class ClientLib {
 
         return status == protocol.Message.STATUS_SUCCESSO;
     }
+
+    public int quantidadeVendas(String produto, int dias) throws IOException {
+        this.output.writeByte(protocol.Message.QUANTIDADE_VENDAS);
+        this.output.writeUTF(produto);
+        this.output.writeInt(dias);
+        this.output.flush();
+        
+        byte status = this.input.readByte();
+        if (status != protocol.Message.STATUS_SUCCESSO) {
+            System.out.println("Erro ao consultar quantidade");
+            return -1;
+        }
+        
+        int resultado = this.input.readInt();
+        return resultado;
+    }
+
+    public double volumeVendas(String produto, int dias) throws IOException {
+        this.output.writeByte(protocol.Message.VOLUME_VENDAS);
+        this.output.writeUTF(produto);
+        this.output.writeInt(dias);
+        this.output.flush();
+        
+        byte status = this.input.readByte();
+        if (status != protocol.Message.STATUS_SUCCESSO) {
+            System.out.println("Erro ao consultar volume");
+            return -1.0;
+        }
+        
+        double resultado = this.input.readDouble();
+        return resultado;
+    }
+
+    public double precoMedio(String produto, int dias) throws IOException {
+        this.output.writeByte(protocol.Message.PRECO_MEDIO);
+        this.output.writeUTF(produto);
+        this.output.writeInt(dias);
+        this.output.flush();
+        
+        byte status = this.input.readByte();
+        if (status != protocol.Message.STATUS_SUCCESSO) {
+            System.out.println("Erro ao consultar preço médio");
+            return -1.0;
+        }
+        
+        double resultado = this.input.readDouble();
+        return resultado;
+    }
+
+    public double precoMaximo(String produto, int dias) throws IOException {
+        this.output.writeByte(protocol.Message.PRECO_MAXIMO);
+        this.output.writeUTF(produto);
+        this.output.writeInt(dias);
+        this.output.flush();
+        
+        byte status = this.input.readByte();
+        if (status != protocol.Message.STATUS_SUCCESSO) {
+            System.out.println("Erro ao consultar preço máximo");
+            return -1.0;
+        }
+        
+        double resultado = this.input.readDouble();
+        return resultado;
+    }
 }

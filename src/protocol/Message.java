@@ -13,5 +13,11 @@ public class Message {
     public static final byte ADICIONAR_EVENTO = 3;
     public static final byte NOVO_DIA = 4;  // Admin only (depois controlas)
 
+    //para a fase de de agregação e cache
+    public static final byte QUANTIDADE_VENDAS = 5;
+    public static final byte VOLUME_VENDAS = 6;
+    public static final byte PRECO_MEDIO = 7;
+    public static final byte PRECO_MAXIMO = 8;
+
     
 }

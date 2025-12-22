@@ -17,7 +17,7 @@ Tendo em conta que vou começar agora pela autenticação, como achas que devo c
 
 
 Compilar- 
-javac src/apps/ClienteInterativo.java src/apps/ClienteTestes.java src/client/ClientLib.java src/common/User.java src/protocol/Message.java src/server/Database.java src/server/Server.java  src/server/UserManager.java 
+javac src/**/*.java
 
 Executar Cliente -
 java -cp src apps.ClienteInterativo
