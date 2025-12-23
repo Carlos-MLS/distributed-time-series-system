@@ -6,6 +6,9 @@ import java.util.concurrent.locks.ReentrantLock;
 
 
 class Produto {
+    //Serve para calcular estatísticas de um produto específico e guarda na cache os resultados 
+    //n é necessariamente um produto físico 
+
     private String nome; //id do produto
     private HashMap<String, Double> cache = new HashMap<>(); // value é dias
     private ReentrantLock lockProduto = new ReentrantLock();

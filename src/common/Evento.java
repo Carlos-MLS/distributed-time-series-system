@@ -1,6 +1,7 @@
 package common;
 
 public class Evento {
+    //Serve para guardar a informação de um evento específico
     private String produto;
     private int quantidade;
     private double preco;

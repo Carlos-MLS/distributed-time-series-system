@@ -1,7 +1,11 @@
 package apps;
 import client.ClientLib;
+import common.Evento;
 import java.io.IOException;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Scanner;
+import java.util.Set;
 
 public class ClienteInterativo {
     public static void main(String[] args) {
@@ -47,10 +51,12 @@ public class ClienteInterativo {
                         
                         // Adicionar eventos em múltiplos dias
                         client.adicionarEvento("Laptop", 10, 1000.0);
+                        client.adicionarEvento("Mouse", 20, 15.0);      
                         client.adicionarEvento("Laptop", 5, 950.0);
                         client.novoDia();
                         
                         client.adicionarEvento("Laptop", 8, 1050.0);
+                        client.adicionarEvento("Mouse", 10, 18.0);      
                         client.novoDia();
                         
                         // Testar agregação
@@ -70,6 +76,16 @@ public class ClienteInterativo {
                         double max = client.precoMaximo("Laptop", 2);
                         System.out.println("Preço máximo Laptop (últimos 2 dias): " + max);
                         // Deve mostrar: 1050.0
+
+
+                        Set<String> filtro = new HashSet<>();
+                        filtro.add("Laptop");
+                        filtro.add("Mouse");
+                        List<Evento> eventos = client.filtrarEventos(filtro, 1);
+                        System.out.println("Eventos encontrados: " + eventos.size());
+                        for (Evento e : eventos) {
+                            System.out.println(e);
+                        }
                     } else {
                         System.out.println("Falha no login.\n");
                     }

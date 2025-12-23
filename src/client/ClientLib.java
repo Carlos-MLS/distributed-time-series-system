@@ -1,8 +1,13 @@
 package client;
+import common.Evento;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import protocol.Message;
 
 public class ClientLib {
     private Socket socket;
@@ -25,13 +30,13 @@ public class ClientLib {
 
     //Envia para o servidor o pedido de registo de um novo user
     public boolean registar(String username, String password) throws IOException {
-        this.output.writeByte(protocol.Message.REGISTAR);
-        this.output.writeUTF(username);
-        this.output.writeUTF(password);
-        this.output.flush();
+        output.writeByte(protocol.Message.REGISTAR);
+        output.writeUTF(username);
+        output.writeUTF(password);
+        output.flush();
 
-        byte status = this.input.readByte();
-        String mensagem = this.input.readUTF();
+        byte status = input.readByte();
+        String mensagem = input.readUTF();
         System.out.println(mensagem);
 
         return status == protocol.Message.STATUS_SUCCESSO;
@@ -39,34 +44,33 @@ public class ClientLib {
 
     //Envia para o servidor o pedido de login de um user
     public boolean login(String username, String password) throws IOException {
-        this.output.writeByte(protocol.Message.LOGIN);
-        this.output.writeUTF(username);
-        this.output.writeUTF(password);
-        this.output.flush();
+        output.writeByte(protocol.Message.LOGIN);
+        output.writeUTF(username);
+        output.writeUTF(password);
+        output.flush();
 
-        byte status = this.input.readByte();
-        String mensagem = this.input.readUTF();
+        byte status = input.readByte();
+        String mensagem = input.readUTF();
         System.out.println(mensagem);
         return status == protocol.Message.STATUS_SUCCESSO;
     }
 
     //Fecha a socket
     public void close() throws IOException {
-        if (this.socket != null && !this.socket.isClosed()) {
-            this.socket.close();    
+        if (socket != null && !socket.isClosed()) {
+            socket.close();    
         }
     }
     
     //
     public boolean adicionarEvento(String produto, int quantidade, double preco) throws IOException {
-        this.output.writeByte(protocol.Message.ADICIONAR_EVENTO);
-        this.output.writeUTF(produto);
-        this.output.writeInt(quantidade);
-        this.output.writeDouble(preco);
-        this.output.flush();
-
-        byte status = this.input.readByte();
-        String mensagem = this.input.readUTF();
+        output.writeByte(protocol.Message.ADICIONAR_EVENTO);
+        output.writeUTF(produto);
+        output.writeInt(quantidade);
+        output.writeDouble(preco);
+        output.flush();
+        byte status = input.readByte();
+        String mensagem = input.readUTF();
         System.out.println(mensagem);
 
         return status == protocol.Message.STATUS_SUCCESSO;
@@ -74,26 +78,28 @@ public class ClientLib {
 
     //Avança para o próximo dia, mesma cena do database mas temos aqui no client porque o client interativo chama este método
     public boolean novoDia() throws IOException {
-        this.output.writeByte(protocol.Message.NOVO_DIA);
-        this.output.flush();
+        output.writeByte(protocol.Message.NOVO_DIA);
+        output.flush();
 
-        byte status = this.input.readByte();
-        String mensagem = this.input.readUTF();
+        byte status = input.readByte();
+        String mensagem = input.readUTF();
         System.out.println(mensagem);
 
         return status == protocol.Message.STATUS_SUCCESSO;
     }
+    //fase de agregação
 
+    //mesma cena do database
     public int quantidadeVendas(String produto, int dias) throws IOException {
-        this.output.writeByte(protocol.Message.QUANTIDADE_VENDAS);
-        this.output.writeUTF(produto);
-        this.output.writeInt(dias);
-        this.output.flush();
+        output.writeByte(protocol.Message.QUANTIDADE_VENDAS);
+        output.writeUTF(produto);
+        output.writeInt(dias);
+        output.flush();
         
-        byte status = this.input.readByte();
+        byte status = input.readByte();
         if (status != protocol.Message.STATUS_SUCCESSO) {
             System.out.println("Erro ao consultar quantidade");
-            return -1;
+            return -1; //valor inválido
         }
         
         int resultado = this.input.readInt();
@@ -101,15 +107,15 @@ public class ClientLib {
     }
 
     public double volumeVendas(String produto, int dias) throws IOException {
-        this.output.writeByte(protocol.Message.VOLUME_VENDAS);
-        this.output.writeUTF(produto);
-        this.output.writeInt(dias);
-        this.output.flush();
+        output.writeByte(protocol.Message.VOLUME_VENDAS);
+        output.writeUTF(produto);
+        output.writeInt(dias);
+        output.flush();
         
-        byte status = this.input.readByte();
+        byte status = input.readByte();
         if (status != protocol.Message.STATUS_SUCCESSO) {
             System.out.println("Erro ao consultar volume");
-            return -1.0;
+            return -1.0; //igual
         }
         
         double resultado = this.input.readDouble();
@@ -117,34 +123,74 @@ public class ClientLib {
     }
 
     public double precoMedio(String produto, int dias) throws IOException {
-        this.output.writeByte(protocol.Message.PRECO_MEDIO);
-        this.output.writeUTF(produto);
-        this.output.writeInt(dias);
-        this.output.flush();
+        output.writeByte(protocol.Message.PRECO_MEDIO);
+        output.writeUTF(produto);
+        output.writeInt(dias);
+        output.flush();
         
-        byte status = this.input.readByte();
+        byte status = input.readByte();
         if (status != protocol.Message.STATUS_SUCCESSO) {
             System.out.println("Erro ao consultar preço médio");
             return -1.0;
         }
         
-        double resultado = this.input.readDouble();
+        double resultado = input.readDouble();
         return resultado;
     }
 
     public double precoMaximo(String produto, int dias) throws IOException {
-        this.output.writeByte(protocol.Message.PRECO_MAXIMO);
-        this.output.writeUTF(produto);
-        this.output.writeInt(dias);
-        this.output.flush();
+        output.writeByte(protocol.Message.PRECO_MAXIMO);
+        output.writeUTF(produto);
+        output.writeInt(dias);
+        output.flush();
         
-        byte status = this.input.readByte();
+        byte status = input.readByte();
         if (status != protocol.Message.STATUS_SUCCESSO) {
             System.out.println("Erro ao consultar preço máximo");
             return -1.0;
         }
         
-        double resultado = this.input.readDouble();
+        double resultado = input.readDouble();
         return resultado;
+    }
+
+
+
+    //fase de filtrar eventos de series temporais
+
+    //envia para o server o pedido de filtrar eventos, com um set de produtos e o dia 
+    public List<Evento> filtrarEventos(Set<String> produtos, int dia) throws IOException {
+
+        output.writeByte(protocol.Message.FILTRAR_EVENTOS);
+        output.writeInt(produtos.size()); //precisamos de enviar o size do set para o server saber quantos produtos terá de ler
+        for (String produto : produtos) {
+            output.writeUTF(produto);
+        }
+        output.writeInt(dia);
+        output.flush();
+
+        byte status = input.readByte();
+        if (status != Message.STATUS_SUCCESSO) {
+            return new ArrayList<>(); //só para n dar null;
+        }
+
+        //lê a lista de eventos filtrados que o server enviou de volta
+        int numProdutos = input.readInt();
+        String[] arrayProdutos = new String[numProdutos];
+        for (int i = 0; i < numProdutos; i++) {
+            arrayProdutos[i] = input.readUTF();
+        }
+
+        int numEventos = input.readInt();
+        List<Evento> eventosFiltrados = new ArrayList<>();
+        for (int i = 0; i < numEventos; i++) {
+            int indProduto = input.readInt();
+            int qtd = input.readInt();
+            double preco = input.readDouble();
+            long timestamp = input.readLong();
+
+            eventosFiltrados.add(new Evento(arrayProdutos[indProduto], qtd, preco));
+        }
+        return eventosFiltrados;
     }
 }

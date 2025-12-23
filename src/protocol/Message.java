@@ -10,6 +10,7 @@ public class Message {
     public static final byte STATUS_FALHOU = 1;
     public static final byte STATUS_NAO_AUTENTICADO = 2; 
 
+    //fase de registo de eventos
     public static final byte ADICIONAR_EVENTO = 3;
     public static final byte NOVO_DIA = 4;  // Admin only (depois controlas)
 
@@ -18,6 +19,9 @@ public class Message {
     public static final byte VOLUME_VENDAS = 6;
     public static final byte PRECO_MEDIO = 7;
     public static final byte PRECO_MAXIMO = 8;
+
+    //fase de filtrar eventos de series temporais
+    public static final byte FILTRAR_EVENTOS = 9;
 
     
 }

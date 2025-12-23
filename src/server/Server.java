@@ -1,4 +1,5 @@
 package server;
+import common.Evento;
 import common.User;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -6,7 +7,13 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import protocol.Message;
 class ServerWorker implements Runnable {
     private Socket socket;
     private UserManager userManager;
@@ -160,6 +167,49 @@ class ServerWorker implements Runnable {
                     
                     out.writeByte(protocol.Message.STATUS_SUCCESSO);
                     out.writeDouble(resultado);
+                    out.flush();
+                }
+
+                else if (tipoOperacao == protocol.Message.FILTRAR_EVENTOS) {
+                    if (!autenticado) {
+                        out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
+                        out.writeUTF("Não autenticado");
+                        out.flush();
+                        continue;
+                    }
+                    
+                    int numProdutos = in.readInt();
+                    Set<String> produtos= new HashSet<>();
+                    for (int i = 0; i < numProdutos; i++) {
+                        produtos.add(in.readUTF());
+                    }
+                    int dia = in.readInt();
+                    
+                    List<Evento> eventosFiltrados = database.filtrarEventos(produtos, dia);
+                    
+
+                    Map<String, Integer> mapProdutosInd = new HashMap<>(); //mapa para guardar o índice de cada produto na lista que vamos enviar
+                    List<String> produtosUnicos = new ArrayList<>(); //lista para guardar os produtos únicos
+                    for (Evento e : eventosFiltrados) {
+                        if (!mapProdutosInd.containsKey(e.getProduto())) {
+                            mapProdutosInd.put(e.getProduto(), produtosUnicos.size());
+                            produtosUnicos.add(e.getProduto());
+                        }
+                    }
+
+                    out.writeByte(Message.STATUS_SUCCESSO);
+                    out.writeInt(produtosUnicos.size()); //primeiro enviamos o número de produtos únicos
+                    for (String produto : produtosUnicos) {
+                        out.writeUTF(produto); //depois enviamos cada produto único
+                    }
+
+                    out.writeInt(eventosFiltrados.size()); //enviamos eventos com o índice do produto na lista de prods
+                    for (Evento e : eventosFiltrados) {
+                        out.writeInt(mapProdutosInd.get(e.getProduto()));
+                        out.writeInt(e.getQuantidade());
+                        out.writeDouble(e.getPreco());
+                        out.writeLong(e.getTimestamp());
+                    }
                     out.flush();
                 }
                 

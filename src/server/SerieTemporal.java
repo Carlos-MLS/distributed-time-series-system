@@ -7,6 +7,8 @@ import java.util.concurrent.locks.ReentrantLock;
 
 
 public class SerieTemporal {
+//Serve para guardar todos os eventos de um dia específico
+
     private int dia;
     private List<Evento> eventos = new ArrayList<>();
     private ReentrantLock lockST = new ReentrantLock();

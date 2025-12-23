@@ -1,4 +1,5 @@
 package server;
+import common.Evento;
 import java.util.*;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -165,6 +166,7 @@ public class Database {
         }
     }
 
+    // Calcula o preço médio de um produto nos últimos int dias
     public double precoMedio(String produtoNome, int dias) {
         lock.lock();
         try {
@@ -182,7 +184,7 @@ public class Database {
             lock.unlock();
         }
     }
-
+    // Calcula o preço máximo de um produto nos últimos int dias
     public double precoMaximo(String produtoNome, int dias) {
         lock.lock();
         try {
@@ -201,5 +203,29 @@ public class Database {
         }
     }
 
+    //fase de filtrar eventos de series temporais, logo da return de uma lista de eventos
+    public List<Evento> filtrarEventos(Set<String> produtosFiltro, int dia) {
+        lock.lock();
+        try {
+            int diaAnt = diaAtual - dia;
+            if (!diasAnteriores.containsKey(diaAnt)) {
+                return new ArrayList<>(); //dia n existe
+            }
+
+            SerieTemporal serie = diasAnteriores.get(diaAnt);
+            List<Evento> todosEventos = serie.obterEventos(); //obtem todos os eventos do dia ant passado antes 
+
+            List<Evento> eventosFiltrados = new ArrayList<>();
+            for (Evento ev : todosEventos) {
+                if (produtosFiltro.contains(ev.getProduto())) {
+                    eventosFiltrados.add(ev);
+                }
+            }
+            return eventosFiltrados;
+            
+        } finally {
+            lock.unlock();
+        }
+    }
 }
 
