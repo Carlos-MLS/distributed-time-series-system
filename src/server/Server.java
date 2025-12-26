@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import protocol.Message;
+
 class ServerWorker implements Runnable {
     private Socket socket;
     private UserManager userManager;
@@ -213,6 +214,51 @@ class ServerWorker implements Runnable {
                     out.flush();
                 }
                 
+                //fase 5, de vendas simultaneas e consecutivas
+                else if (tipoOperacao == protocol.Message.VENDAS_SIMULTANEAS) {
+                    if (!autenticado) {
+                        out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
+                        out.writeUTF("Não autenticado");
+                        out.flush();
+                        continue;
+                    }
+                    String produto1 = in.readUTF();
+                    String produto2 = in.readUTF();
+                    boolean result = false;
+                    try {
+                        result = database.vendasSimultaneas(produto1, produto2);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+
+                    out.writeByte(protocol.Message.STATUS_SUCCESSO);
+                    out.writeBoolean(result);
+                    out.flush();
+                }
+                else if (tipoOperacao == protocol.Message.VENDAS_CONSECUTIVAS) {
+                    if (!autenticado) {
+                        out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
+                        out.writeUTF("Não autenticado");
+                        out.flush();
+                        continue;
+                    }
+
+                    int n = in.readInt(); //número de vendas consecutivas a aguardar
+                    String produtoVendido = null;
+                    try {
+                        produtoVendido = database.vendasConsecutivas(n);
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
+                    out.writeByte(protocol.Message.STATUS_SUCCESSO);
+                    if (produtoVendido != null) {
+                        out.writeBoolean(true);
+                        out.writeUTF(produtoVendido);
+                    } else {
+                        out.writeBoolean(false);
+                    }
+                    out.flush();
+                }
 
             }
         } catch (EOFException e) {

@@ -193,4 +193,35 @@ public class ClientLib {
         }
         return eventosFiltrados;
     }
+
+
+    //fase de notificação ocorrências, a de vendas simultaneas e consecutivas
+
+    //retorna true se houve vendas simultaneas dos dois produtos
+    public boolean aguardarVendasSimultaneas(String produto1, String produto2) throws IOException {
+        output.writeByte(protocol.Message.VENDAS_SIMULTANEAS);
+        output.writeUTF(produto1);
+        output.writeUTF(produto2);
+        output.flush();
+
+        byte status = input.readByte(); 
+        if(status != Message.STATUS_SUCCESSO) return false;
+        boolean result = input.readBoolean();
+        return result;
+    }
+
+    //retorna o nome do produto que atingiu o número de vendas consecutivas
+    public String aguardarVendasConsecutivas(int n) throws IOException {
+        output.writeByte(protocol.Message.VENDAS_CONSECUTIVAS);
+        output.writeInt(n);
+        output.flush();
+
+        byte status = input.readByte();
+        if(status != Message.STATUS_SUCCESSO) return null; 
+        
+        boolean hasResult = input.readBoolean();
+        if(!hasResult) return null; //se n tiver resultado retorna null, senão lemos o nome do produto
+        String produtoNome = input.readUTF();
+        return produtoNome;
+    }
 }

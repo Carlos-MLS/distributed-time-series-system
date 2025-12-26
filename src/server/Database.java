@@ -10,7 +10,9 @@ public class Database {
     private HashMap<Integer, SerieTemporal> diasAnteriores = new HashMap<>();
     private HashMap<String, Produto> produtos = new HashMap<>(); // key é o nome do produto
     private ReentrantLock lock = new ReentrantLock();  
-    private Condition cond = lock.newCondition();
+    //conditions para  a fase 5 de notificações
+    Condition condVendasSimultaneas = lock.newCondition();
+    Condition condVendasConsecutivas = lock.newCondition();
 
     //Construtor vazio
     public Database() {
@@ -88,6 +90,40 @@ public class Database {
     public Database clone() {
         return new Database(this.diaAtual, this.serieTemporal.clone(), new HashMap<>(this.diasAnteriores));
     }
+
+    //fase de notificação ocorrências, a que temos barreira
+    class VendaSimultanea {
+        private String p1, p2;
+        boolean diaTerminou = false;
+        boolean p1Vendido = false, p2Vendido = false;
+        boolean p1ep2Vendidos = false;
+
+        public VendaSimultanea(String p1, String p2) {
+            this.p1 = p1;
+            this.p2 = p2;
+        }
+    }
+    //para guardar as vendas simultaneas
+    List<VendaSimultanea> vendasSimultaneas = new ArrayList<>();
+
+
+    class VendaConsecutiva {
+        private int quantidadeVendasConsecutivas = 0;
+        String nomeProduto = null;
+        boolean diaTerminou = false;
+        boolean chegouObjetivo = false;
+
+        public VendaConsecutiva(int n) {
+            this.quantidadeVendasConsecutivas = n;
+        }
+
+    }
+    List<VendaConsecutiva> vendasConsecutivas = new ArrayList<>();
+
+
+    String ultimoProdutoVendido = null;
+    int counterConsecutivo = 0;
+
   /*-------------------------METODOS------------------------------------ */
 
     //Adiciona um evento ao dia atual
@@ -99,11 +135,44 @@ public class Database {
             if(produtos.containsKey(produto)) {
                 produtos.get(produto).invalidarCache();
             }
+
+            //agora temos de adicionar aqui para a fase 5  
+            //vendas simultaneas
+            for(VendaSimultanea vs : vendasSimultaneas) {
+                    if(produto.equals(vs.p1)) {
+                        vs.p1Vendido = true;
+                    }
+                    if(produto.equals(vs.p2)) {
+                        vs.p2Vendido = true;
+                    }
+                    if(vs.p1Vendido && vs.p2Vendido) {
+                        vs.p1ep2Vendidos = true;
+                        condVendasSimultaneas.signalAll(); //quando ambos vendidos acorda todos
+                    }
+            }
+
+            //para vendas consecutivas
+            if(produto.equals(ultimoProdutoVendido)) {
+                counterConsecutivo++;
+            } else {
+                ultimoProdutoVendido = produto;
+                counterConsecutivo = 1;
+            }
+
+            //verifica se algum pedido de vendas consecutivas chegou ao objetivo
+            for(VendaConsecutiva vc : vendasConsecutivas) {
+                if(counterConsecutivo >= vc.quantidadeVendasConsecutivas) {
+                        vc.nomeProduto = produto;
+                        vc.chegouObjetivo = true;
+                        condVendasConsecutivas.signalAll(); //acorda todos
+                }
+            }
+        
         } finally {
             lock.unlock();
         }
     }
-
+    
     //Avança para o próximo dia
     public void novoDia() {
         lock.lock();
@@ -111,6 +180,21 @@ public class Database {
             diasAnteriores.put(diaAtual, serieTemporal);
             diaAtual++;
             serieTemporal = new SerieTemporal(diaAtual);
+
+            //aqui temos de cancelar os pedidos de vendas simultaneas e consecutivas porque o dia terminou
+            for(VendaSimultanea vs : vendasSimultaneas) {
+                vs.diaTerminou = true;
+            }
+            //como a condição é atingir o objetivo ou o dia terminar, acordamos todos aqui tbm
+            condVendasSimultaneas.signalAll(); //acorda todos
+            for(VendaConsecutiva vc : vendasConsecutivas) {
+                vc.diaTerminou = true;
+            }
+            condVendasConsecutivas.signalAll(); //acorda todos
+
+            //reset das vendas consecutivas
+            ultimoProdutoVendido = null;
+            counterConsecutivo = 0;
         } finally {
             lock.unlock();
         }
@@ -227,5 +311,69 @@ public class Database {
             lock.unlock();
         }
     }
+
+
+
+    //fase 5 de notificação ocorrências
+    public boolean vendasSimultaneas(String produto1, String produto2) throws InterruptedException {
+        lock.lock();
+        try {
+            //criamos pedido
+            VendaSimultanea pedidoVendaSimultanea = new VendaSimultanea(produto1,produto2);
+
+            //primeiro vemos se já existe foram vendidos hoje 
+            for(Evento ev: serieTemporal.obterEventos()) {
+                if(ev.getProduto().equals(produto1)) {
+                    pedidoVendaSimultanea.p1Vendido = true;
+                }
+                if(ev.getProduto().equals(produto2)) {
+                    pedidoVendaSimultanea.p2Vendido = true;
+                }
+            }
+            //se foram ambos vendidos retornamos true
+            if(pedidoVendaSimultanea.p1Vendido && pedidoVendaSimultanea.p2Vendido) {
+                return true;
+            }
+
+            //senão adicionamos à lista de pedidos ativos e esperamos
+            vendasSimultaneas.add(pedidoVendaSimultanea);
+
+            //esperamos até sermos notificados
+            while(!pedidoVendaSimultanea.p1ep2Vendidos && !pedidoVendaSimultanea.diaTerminou) {
+                condVendasSimultaneas.await();
+            }
+
+            //se chegar aqui o dia terminou ou foram vendidos ambos
+            vendasSimultaneas.remove(pedidoVendaSimultanea);
+            return pedidoVendaSimultanea.p1ep2Vendidos; //true se foram vendidos ambos, false se dia terminou
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    //Mesma cena para vendas consecutivas
+    public String vendasConsecutivas(int n) throws InterruptedException {
+        lock.lock();
+        try {
+            //já aconteceu isto hoje?
+            if(counterConsecutivo >= n) {
+                return ultimoProdutoVendido;
+            }
+
+            VendaConsecutiva pedidoVendaConsecutiva = new VendaConsecutiva(n);
+            vendasConsecutivas.add(pedidoVendaConsecutiva);
+
+            while(!pedidoVendaConsecutiva.chegouObjetivo && !pedidoVendaConsecutiva.diaTerminou) {
+                condVendasConsecutivas.await();
+            }
+            //QUANDO SAIR AQUI FOI PORQUE CHEGOU AO OBJETIVO OU O DIA TERMINO
+            vendasConsecutivas.remove(pedidoVendaConsecutiva);
+            return pedidoVendaConsecutiva.nomeProduto;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+
 }
 

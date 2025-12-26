@@ -86,6 +86,53 @@ public class ClienteInterativo {
                         for (Evento e : eventos) {
                             System.out.println(e);
                         }
+                        
+                        // TESTE FASE 5: Comentado temporariamente até implementar Fase 6 (socket multi-threaded)
+                        // Problema: múltiplas threads a usar a mesma socket causam corrupção de dados
+                        /*
+                        // Criar referência final para usar nas threads
+                        final ClientLib clientFinal = client;
+                        
+                        // Thread 1: Esperar vendas simultâneas
+                        new Thread(() -> {
+                            try {
+                                boolean ok = clientFinal.aguardarVendasSimultaneas("Laptop", "Mouse");
+                                System.out.println("Vendas simultâneas: " + ok);
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        }).start();
+                        // Thread 2: Adicionar eventos
+                        new Thread(() -> {
+                            try {
+                                Thread.sleep(1000);
+                                clientFinal.adicionarEvento("Laptop", 1, 1000);
+                                Thread.sleep(1000);
+                                clientFinal.adicionarEvento("Mouse", 1, 20);  // <- Thread 1 acorda aqui!
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        }).start();
+
+                        // Thread 3: Esperar 3 vendas consecutivas
+                        new Thread(() -> {
+                            try {
+                                String prod = clientFinal.aguardarVendasConsecutivas(3);
+                                System.out.println("3 vendas consecutivas de: " + prod);
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        }).start();
+
+                        // Adicionar vendas consecutivas
+                        client.adicionarEvento("Teclado", 1, 50);
+                        client.adicionarEvento("Teclado", 1, 50);
+                        client.adicionarEvento("Teclado", 1, 50);  // <- Thread 3 acorda aqui!
+                        */
+                        
+                        System.out.println("\nFase 5 implementada mas testes multi-thread requerem Fase 6.");
                     } else {
                         System.out.println("Falha no login.\n");
                     }

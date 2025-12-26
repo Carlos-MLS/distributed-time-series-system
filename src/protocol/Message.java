@@ -23,5 +23,11 @@ public class Message {
     //fase de filtrar eventos de series temporais
     public static final byte FILTRAR_EVENTOS = 9;
 
+
+    //fase de notificação ocorrências, a que temos barreira
+    public static final byte VENDAS_SIMULTANEAS = 10;
+    public static final byte VENDAS_CONSECUTIVAS = 11;
+
+
     
 }
