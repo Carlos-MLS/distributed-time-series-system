@@ -1,6 +1,10 @@
 package server;
 import common.Evento;
+import common.TaggedConnection;
+import common.TaggedConnection.Frame;
 import common.User;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
@@ -14,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import protocol.Message;
+
+
 
 class ServerWorker implements Runnable {
     private Socket socket;
@@ -32,16 +38,28 @@ class ServerWorker implements Runnable {
     @Override
     public void run() { 
         try {
-            DataInputStream in = new DataInputStream(socket.getInputStream());
-            DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+            TaggedConnection taggedConn = new TaggedConnection(socket);
+
+            
             while(true) {
+                Frame frame = taggedConn.receive();  // Recebe pedido com tag
+                int tag = frame.tag;
+                
+                // Deserializar o pedido
+                ByteArrayInputStream bais = new ByteArrayInputStream(frame.data);
+                DataInputStream in = new DataInputStream(bais);
                 byte tipoOperacao = in.readByte();
+    
                 if (tipoOperacao == protocol.Message.REGISTAR) { //podia dizer diretamente == 1 mas se tiver uma constante melhor já que é mais legível
                     String username = in.readUTF();
                     String password = in.readUTF(); //readUTF lê uma string que foi escrita com writeUTF
 
                     User novoUser = new User(username, password);
                     boolean registouComSucesso = userManager.registarUser(novoUser);
+
+                    //temos que serializar a resposta agora
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
 
                     if(registouComSucesso) {
                         out.writeByte(protocol.Message.STATUS_SUCCESSO);
@@ -52,12 +70,17 @@ class ServerWorker implements Runnable {
 
                     }
                     out.flush();
+
+                    taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }
                 else if (tipoOperacao == protocol.Message.LOGIN) { // ou seja return ==2
                     String username = in.readUTF();
                     String password = in.readUTF(); //readUTF lê uma string que foi escrita com writeUTF
 
                     boolean loginComSucesso = userManager.validarUser(username, password);
+
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
 
                     if(loginComSucesso) {
                         autenticado = true;
@@ -70,13 +93,18 @@ class ServerWorker implements Runnable {
 
                     }
                     out.flush();
+                    taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }
 
                 else if (tipoOperacao == protocol.Message.ADICIONAR_EVENTO) { //
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
+
                     if(!autenticado) {
                         out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
                         out.writeUTF("Erro: Não autenticado. Por favor faça login ou registe-se primeiro.");
                         out.flush();
+                        taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                         continue;
                     }
                     String produto = in.readUTF();
@@ -88,12 +116,17 @@ class ServerWorker implements Runnable {
                     out.writeByte(protocol.Message.STATUS_SUCCESSO);
                     out.writeUTF("Evento adicionado com sucesso");
                     out.flush();
+                    taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }
                 else if (tipoOperacao == protocol.Message.NOVO_DIA) { //
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
+
                     if(!autenticado) {
                         out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
                         out.writeUTF("Erro: Não autenticado. Por favor faça login ou registe-se primeiro.");
                         out.flush();
+                        taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                         continue;
                     }
 
@@ -101,12 +134,17 @@ class ServerWorker implements Runnable {
                     out.writeByte(protocol.Message.STATUS_SUCCESSO);
                     out.writeUTF("Avançou para o próximo dia com sucesso");
                     out.flush();
+                    taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }
                 else if (tipoOperacao == protocol.Message.QUANTIDADE_VENDAS) {
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
+
                     if (!autenticado) {
                         out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
                         out.writeUTF("Não autenticado");
                         out.flush();
+                        taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                         continue;
                     }
                     
@@ -118,12 +156,17 @@ class ServerWorker implements Runnable {
                     out.writeByte(protocol.Message.STATUS_SUCCESSO);
                     out.writeInt(resultado);
                     out.flush();
+                    taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }
                 else if (tipoOperacao == protocol.Message.VOLUME_VENDAS) {
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
+
                     if (!autenticado) {
                         out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
                         out.writeUTF("Não autenticado");
                         out.flush();
+                        taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                         continue;
                     }
                     
@@ -135,12 +178,17 @@ class ServerWorker implements Runnable {
                     out.writeByte(protocol.Message.STATUS_SUCCESSO);
                     out.writeDouble(resultado);
                     out.flush();
+                    taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }
                 else if (tipoOperacao == protocol.Message.PRECO_MEDIO) {
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
+
                     if (!autenticado) {
                         out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
                         out.writeUTF("Não autenticado");
                         out.flush();
+                        taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                         continue;
                     }
                     
@@ -152,12 +200,17 @@ class ServerWorker implements Runnable {
                     out.writeByte(protocol.Message.STATUS_SUCCESSO);
                     out.writeDouble(resultado);
                     out.flush();
+                    taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }
                 else if (tipoOperacao == protocol.Message.PRECO_MAXIMO) {
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
+
                     if (!autenticado) {
                         out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
                         out.writeUTF("Não autenticado");
                         out.flush();
+                        taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                         continue;
                     }
                     
@@ -169,13 +222,18 @@ class ServerWorker implements Runnable {
                     out.writeByte(protocol.Message.STATUS_SUCCESSO);
                     out.writeDouble(resultado);
                     out.flush();
+                    taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }
 
                 else if (tipoOperacao == protocol.Message.FILTRAR_EVENTOS) {
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
+
                     if (!autenticado) {
                         out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
                         out.writeUTF("Não autenticado");
                         out.flush();
+                        taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                         continue;
                     }
                     
@@ -212,14 +270,19 @@ class ServerWorker implements Runnable {
                         out.writeLong(e.getTimestamp());
                     }
                     out.flush();
+                    taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }
                 
                 //fase 5, de vendas simultaneas e consecutivas
                 else if (tipoOperacao == protocol.Message.VENDAS_SIMULTANEAS) {
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
+
                     if (!autenticado) {
                         out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
                         out.writeUTF("Não autenticado");
                         out.flush();
+                        taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                         continue;
                     }
                     String produto1 = in.readUTF();
@@ -234,12 +297,17 @@ class ServerWorker implements Runnable {
                     out.writeByte(protocol.Message.STATUS_SUCCESSO);
                     out.writeBoolean(result);
                     out.flush();
+                    taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }
                 else if (tipoOperacao == protocol.Message.VENDAS_CONSECUTIVAS) {
+                    ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+                    DataOutputStream out = new DataOutputStream(byteArrayOutputStream);
+
                     if (!autenticado) {
                         out.writeByte(protocol.Message.STATUS_NAO_AUTENTICADO);
                         out.writeUTF("Não autenticado");
                         out.flush();
+                        taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                         continue;
                     }
 
@@ -258,8 +326,8 @@ class ServerWorker implements Runnable {
                         out.writeBoolean(false);
                     }
                     out.flush();
+                    taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }
-
             }
         } catch (EOFException e) {
             System.out.println("Cliente terminou a conexão: " + socket.getRemoteSocketAddress());

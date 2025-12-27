@@ -89,7 +89,7 @@ public class ClienteInterativo {
                         
                         // TESTE FASE 5: Comentado temporariamente até implementar Fase 6 (socket multi-threaded)
                         // Problema: múltiplas threads a usar a mesma socket causam corrupção de dados
-                        /*
+                        
                         // Criar referência final para usar nas threads
                         final ClientLib clientFinal = client;
                         
@@ -130,7 +130,7 @@ public class ClienteInterativo {
                         client.adicionarEvento("Teclado", 1, 50);
                         client.adicionarEvento("Teclado", 1, 50);
                         client.adicionarEvento("Teclado", 1, 50);  // <- Thread 3 acorda aqui!
-                        */
+                        
                         
                         System.out.println("\nFase 5 implementada mas testes multi-thread requerem Fase 6.");
                     } else {
