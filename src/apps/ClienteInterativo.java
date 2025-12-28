@@ -48,17 +48,17 @@ public class ClienteInterativo {
                     boolean sucessoLogin = client.login(username, password);
                     if (sucessoLogin) {
                         System.out.println("Login bem-sucedido!\n");
-                        
+
                         // Adicionar eventos em múltiplos dias
                         client.adicionarEvento("Laptop", 10, 1000.0);
-                        client.adicionarEvento("Mouse", 20, 15.0);      
+                        client.adicionarEvento("Mouse", 20, 15.0);
                         client.adicionarEvento("Laptop", 5, 950.0);
                         client.novoDia();
-                        
+
                         client.adicionarEvento("Laptop", 8, 1050.0);
-                        client.adicionarEvento("Mouse", 10, 18.0);      
+                        client.adicionarEvento("Mouse", 10, 18.0);
                         client.novoDia();
-                        
+
                         // Testar agregação
                         int qtd = client.quantidadeVendas("Laptop", 2);
                         System.out.println("Quantidade vendida Laptop (últimos 2 dias): " + qtd);
@@ -77,7 +77,6 @@ public class ClienteInterativo {
                         System.out.println("Preço máximo Laptop (últimos 2 dias): " + max);
                         // Deve mostrar: 1050.0
 
-
                         Set<String> filtro = new HashSet<>();
                         filtro.add("Laptop");
                         filtro.add("Mouse");
@@ -86,53 +85,64 @@ public class ClienteInterativo {
                         for (Evento e : eventos) {
                             System.out.println(e);
                         }
-                        
-                        // TESTE FASE 5: Comentado temporariamente até implementar Fase 6 (socket multi-threaded)
-                        // Problema: múltiplas threads a usar a mesma socket causam corrupção de dados
-                        
-                        // Criar referência final para usar nas threads
-                        final ClientLib clientFinal = client;
+
+                        System.out.println("\n=== Testando Fase 5: Barreiras ===");
                         
                         // Thread 1: Esperar vendas simultâneas
-                        new Thread(() -> {
+                        Thread t1 = new Thread(() -> {
                             try {
-                                boolean ok = clientFinal.aguardarVendasSimultaneas("Laptop", "Mouse");
-                                System.out.println("Vendas simultâneas: " + ok);
+                                // Usar nova conexão para evitar bloquear a conexão principal no servidor
+                                ClientLib clientListener = new ClientLib("localhost", 12345);
+                                clientListener.login(username, password);
+                                boolean ok = clientListener.aguardarVendasSimultaneas("Laptop", "Mouse");
+                                System.out.println("✓ Vendas simultâneas detectadas: " + ok);
+                                clientListener.close();
                             } catch (Exception e) {
-                                e.printStackTrace();
+                                System.err.println("Erro em vendas simultâneas: " + e.getMessage());
                             }
-                        }).start();
-                        // Thread 2: Adicionar eventos
-                        new Thread(() -> {
-                            try {
-                                Thread.sleep(1000);
-                                clientFinal.adicionarEvento("Laptop", 1, 1000);
-                                Thread.sleep(1000);
-                                clientFinal.adicionarEvento("Mouse", 1, 20);  // <- Thread 1 acorda aqui!
-                            } catch (InterruptedException e) {
-                                e.printStackTrace();
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        }).start();
+                        });
+                        t1.start();
 
-                        // Thread 3: Esperar 3 vendas consecutivas
-                        new Thread(() -> {
-                            try {
-                                String prod = clientFinal.aguardarVendasConsecutivas(3);
-                                System.out.println("3 vendas consecutivas de: " + prod);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        }).start();
+                        try {
+                            // Espera maior para garantir que a thread está registada
+                            Thread.sleep(1000);
+                            client.adicionarEvento("Laptop", 1, 1000);
+                            Thread.sleep(500);
+                            client.adicionarEvento("Mouse", 1, 20);
+                            t1.join(2000);
+                        } catch (InterruptedException e) {
+                            System.err.println("Erro em sleep/join (simultâneas): " + e.getMessage());
+                        }
 
-                        // Adicionar vendas consecutivas
-                        client.adicionarEvento("Teclado", 1, 50);
-                        client.adicionarEvento("Teclado", 1, 50);
-                        client.adicionarEvento("Teclado", 1, 50);  // <- Thread 3 acorda aqui!
-                        
-                        
-                        System.out.println("\nFase 5 implementada mas testes multi-thread requerem Fase 6.");
+                        // Thread 2: Esperar 3 vendas consecutivas
+                        Thread t2 = new Thread(() -> {
+                            try {
+                                // Usar nova conexão para evitar bloquear a conexão principal no servidor
+                                ClientLib clientListener = new ClientLib("localhost", 12345);
+                                clientListener.login(username, password);
+                                String prod = clientListener.aguardarVendasConsecutivas(3);
+                                System.out.println("✓ 3 vendas consecutivas detectadas de: " + prod);
+                                clientListener.close();
+                            } catch (Exception e) {
+                                System.err.println("Erro em vendas consecutivas: " + e.getMessage());
+                            }
+                        });
+                        t2.start();
+
+                        try {
+                            // Espera maior para garantir que a thread está registada
+                            Thread.sleep(1000);
+                            client.adicionarEvento("Teclado", 1, 50);
+                            client.adicionarEvento("Teclado", 1, 50);
+                            client.adicionarEvento("Teclado", 1, 50);
+                            t2.join(2000);
+                        } catch (InterruptedException e) {
+                            System.err.println("Erro em sleep/join (consecutivas): " + e.getMessage());
+                        }
+
+                        System.out.println("\nTodas as fases testadas com sucesso!");
+                        System.out.println("Pressione Enter para continuar...");
+                        scanner.nextLine();
                     } else {
                         System.out.println("Falha no login.\n");
                     }

@@ -1,5 +1,12 @@
 package server;
 import common.Evento;
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
@@ -9,6 +16,9 @@ import java.util.concurrent.locks.ReentrantLock;
 public class SerieTemporal {
 //Serve para guardar todos os eventos de um dia específico
 
+    //ainda n sei se será preciso usar isto ou se passamos o path diretamente na func
+    private String PATHTOSAVE = "data/seriestemporais/";
+    
     private int dia;
     private List<Evento> eventos = new ArrayList<>();
     private ReentrantLock lockST = new ReentrantLock();
@@ -127,5 +137,65 @@ public class SerieTemporal {
         } finally {
             lockST.unlock();
         }
+    }
+
+    //precisamos de guardar a serie temporal de eventos em files agora para a fase de persistência na fase 7
+    public void saveToFile(String path) throws IOException {
+        lockST.lock();
+        try {
+            FileOutputStream fileOutputStream = new FileOutputStream(path);
+            DataOutputStream output = new DataOutputStream(new BufferedOutputStream(fileOutputStream));
+
+            //escrever o número de eventos primeiro
+            output.writeInt(eventos.size());
+
+            for(Evento ev: eventos) {
+                ev.serialize(output); //criamos o serialize na classe Evento
+            }
+
+            output.flush();
+            output.close();
+
+        } finally {
+            lockST.unlock();
+        }
+    }
+
+
+    //dar load dos dados agora de um file para a série temporal
+    //n usamos lock aqui porque é um método estático que cria uma nova série temporal
+    public static SerieTemporal loadFromFile(String path, int dia) throws IOException {
+        FileInputStream fileInputStream = new FileInputStream(path);
+        DataInputStream input = new DataInputStream(new BufferedInputStream(fileInputStream));
+
+        SerieTemporal serieTemporal = new SerieTemporal(dia);
+
+        //ler o num de events
+        int numeroEventos = input.readInt();
+
+        for(int i = 0; i < numeroEventos; i++) {
+            Evento ev = Evento.deserialize(input); //criamos o deserialize na classe Evento
+            serieTemporal.eventos.add(ev);
+        }
+        input.close();
+        return serieTemporal;
+    }
+    //quando já temos S séries em memória, processamos a série sem carregar tudo 
+    public static int contarQuantidadeProdutoStreaming (String path, String produtoNome) throws IOException {
+        int count = 0;
+        FileInputStream fileInputStream = new FileInputStream(path);
+        DataInputStream input = new DataInputStream(new BufferedInputStream(fileInputStream));
+
+        int numEventos = input.readInt();
+
+        for(int i = 0; i < numEventos; i++) {
+            Evento ev = Evento.deserialize(input);
+            if(ev.getProduto().equals(produtoNome)) {
+                count += ev.getQuantidade();
+            }
+            //não adicionamos o evento à lista, só processamos, ou seja poupamos memória
+        }
+        input.close();
+        return count;
     }
 }

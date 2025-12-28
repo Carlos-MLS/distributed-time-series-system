@@ -19,8 +19,12 @@ Tendo em conta que vou começar agora pela autenticação, como achas que devo c
 Compilar- 
 javac src/**/*.java
 
-Executar Cliente -
+Executar Server (com parâmetros D e S opcionais) - 
+java -cp src server.Server [D] [S]
+Exemplo: java -cp src server.Server 50 10
+
+Executar Cliente Interativo -
 java -cp src apps.ClienteInterativo
 
-Executar Server - 
-java -cp src server.Server
+Executar Cliente Testes
+java -cp src apps.ClienteTestes

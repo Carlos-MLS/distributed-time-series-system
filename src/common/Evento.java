@@ -1,4 +1,7 @@
 package common;
+import java.io.DataOutputStream;
+import java.io.IOException;
+
 
 public class Evento {
     //Serve para guardar a informação de um evento específico
@@ -70,5 +73,28 @@ public class Evento {
     public Evento clone() {
         return new Evento(this.produto, this.quantidade, this.preco);
     }
+
+
+    //adicionamos agora o serialize e deserialize para poder gravar 
+    //em files os dados de eventos para a fase de persistência na fase 7
+
+    public void serialize(DataOutputStream out) throws IOException {
+        out.writeUTF(produto);
+        out.writeInt(quantidade);
+        out.writeDouble(preco);
+        out.writeLong(timestamp);
+    }
+
+    //
+    public static Evento deserialize(java.io.DataInputStream in) throws IOException {
+        String produto = in.readUTF();
+        int quantidade = in.readInt();
+        double preco = in.readDouble();
+        long timestamp = in.readLong();
+        Evento evento = new Evento(produto, quantidade, preco);
+        evento.setTimestamp(timestamp); //temos de manter o timestamp original
+        return evento;
+    }
+
 }
 

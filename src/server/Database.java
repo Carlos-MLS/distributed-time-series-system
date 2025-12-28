@@ -1,10 +1,15 @@
 package server;
 import common.Evento;
+
+import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
+import java.io.File;
+
 
 public class Database {
+
     private int diaAtual = 0;
     private SerieTemporal serieTemporal = new SerieTemporal(0);
     private HashMap<Integer, SerieTemporal> diasAnteriores = new HashMap<>();
@@ -14,21 +19,38 @@ public class Database {
     Condition condVendasSimultaneas = lock.newCondition();
     Condition condVendasConsecutivas = lock.newCondition();
 
+
+    //parâmetros para a fase 7 de persistência
+    private String PATHDADOS = "data/series/";
+    private int D = 30; //n dias mantidos, metemos o default a 30
+    private int S = 5; //máximo de séries temporais em memória, default = 5
+    private Set<Integer> diasEmDisco = new HashSet<>(); //para saber que dias estão em disco
+    private LinkedHashMap<Integer, SerieTemporal> memoriaCache; //inicializado no construtor
+
+
     //Construtor vazio
     public Database() {
         this.diaAtual = 0;
         this.serieTemporal = new SerieTemporal(0);
         this.diasAnteriores = new HashMap<>();
         this.produtos = new HashMap<>();
+        // Criar diretório se não existir
+        new File(PATHDADOS).mkdirs();
+        // Inicializar cache LRU
+        inicializarCache();
     }
     
-    //Construtor
-    public Database(int diaAtual, SerieTemporal serieTemporal, HashMap<Integer, SerieTemporal> diasAnteriores) {
-        this.diaAtual = diaAtual;
-        this.serieTemporal = serieTemporal;
-        this.diasAnteriores = diasAnteriores;
+    //Construtor parametrizado
+    public Database(int d, int s) {
+        this.D = d;
+        this.S = s;
+        this.diaAtual = 0;
+        this.serieTemporal = new SerieTemporal(0);
+        this.diasAnteriores = new HashMap<>();
         this.produtos = new HashMap<>();
+        inicializarCache();
     }
+    
 
     //Getters
     public int getDiaAtual() {
@@ -86,10 +108,7 @@ public class Database {
     }
 
 
-    //clone
-    public Database clone() {
-        return new Database(this.diaAtual, this.serieTemporal.clone(), new HashMap<>(this.diasAnteriores));
-    }
+    //clone - removido porque não faz sentido copiar toda a database com D, S e cache LRU
 
     //fase de notificação ocorrências, a que temos barreira
     class VendaSimultanea {
@@ -173,49 +192,93 @@ public class Database {
         }
     }
     
-    //Avança para o próximo dia
+    //Avança para o próximo dia, e grava o dia atual em disco (devido à fase 7)
     public void novoDia() {
         lock.lock();
         try {
+            // Persistir dia atual antes de avançar
+            String caminhoArquivo = PATHDADOS + "dia_" + diaAtual + ".dat";
+            serieTemporal.saveToFile(caminhoArquivo);
+            
+            // Adicionar à cache de memória 
             diasAnteriores.put(diaAtual, serieTemporal);
-            diaAtual++;
-            serieTemporal = new SerieTemporal(diaAtual);
-
-            //aqui temos de cancelar os pedidos de vendas simultaneas e consecutivas porque o dia terminou
-            for(VendaSimultanea vs : vendasSimultaneas) {
-                vs.diaTerminou = true;
+            memoriaCache.put(diaAtual, serieTemporal);
+            diasEmDisco.add(diaAtual);
+            
+            // Invalidar cache de produtos já que há um novo dia
+            for (Produto p : produtos.values()) {
+                p.invalidarCache();
             }
-            //como a condição é atingir o objetivo ou o dia terminar, acordamos todos aqui tbm
-            condVendasSimultaneas.signalAll(); //acorda todos
-            for(VendaConsecutiva vc : vendasConsecutivas) {
-                vc.diaTerminou = true;
-            }
-            condVendasConsecutivas.signalAll(); //acorda todos
-
-            //reset das vendas consecutivas
+            
+            //limpámos as vendas da fase 5
+            vendasSimultaneas.clear();
+            vendasConsecutivas.clear();
             ultimoProdutoVendido = null;
             counterConsecutivo = 0;
+            
+            // Avançamos para um novo dia
+            diaAtual++;
+            serieTemporal = new SerieTemporal(diaAtual);
+            
+            //acordamos as threads à espera
+            condVendasConsecutivas.signalAll();
+            condVendasSimultaneas.signalAll();
+        } catch (IOException e) {
+            System.err.println("deu erro aqui no database testeaaa");
+            e.printStackTrace();
         } finally {
             lock.unlock();
         }
     }
 
-    //Fase de agregação
     //return da quantidade de unidadades do produtoNome nos últimos  dias
     public int quantidadeVendas(String produtoNome, int dias) {
         lock.lock(); 
         try{
             Produto produto = criarOuObterProduto(produtoNome);
             int diaAtualAux = diaAtual;
+
+            int diasProcessados = 0;
             List<SerieTemporal> seriesT = new ArrayList<>();
 
-            for (int i = 0; i <= dias; i++) {
-                int diaAnt = diaAtualAux - i;
-                if(diasAnteriores.containsKey(diaAnt)) {
-                    seriesT.add(diasAnteriores.get(diaAnt));
+            for (int d = diaAtual - 1; d >= 0 && diasProcessados < dias; d--) {
+                try {
+                    //obtemos a série temporal do dia d, se existir adicionamos à lista e incrementamos o contador
+                    SerieTemporal serieT = obterSerieTemporal(d);
+                    if (serieT != null) {
+                        seriesT.add(serieT);
+                        diasProcessados++;
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
-            }   
+            }
+            
+            // Se  nós já temos S séries em memória e precisamos de mais dados,
+            // usamos o streaming para processar do disco sem carregar
+            if (diasEmDisco.size() >= S && diasProcessados < dias) {
+                // Processamos os dias restantes diretamente do disco
+                int totalDisco = 0;
+                for (int d = diaAtual - diasProcessados - 1; d >= 0 && diasProcessados < dias; d--) {
+                    String path = PATHDADOS + "dia_" + d + ".dat";
+                    File file = new File(path);
+                    
+                    if (file.exists()) {
+                        try {
+                            totalDisco += SerieTemporal.contarQuantidadeProdutoStreaming(
+                                produtoNome, path);
+                            diasProcessados++;
+                        } catch (IOException e) {
+                            System.err.println("Erro streaming dia " + d + ": " + e.getMessage());
+                        }
+                    }
+                }
+                
+                // combinamos o resultado das séries em memória mais os dos dias em disco
+                return produto.quantidadeVendas(seriesT, seriesT.size()) + totalDisco;
+            }
             //O produto é que vai iterar sobre a seriesT que passamos como arg, n é mt lógico mas funciona
+            //return aqui se todas as séries temporais já estão em memória
             return produto.quantidadeVendas(seriesT,dias);
         } finally{
             lock.unlock();
@@ -366,7 +429,7 @@ public class Database {
             while(!pedidoVendaConsecutiva.chegouObjetivo && !pedidoVendaConsecutiva.diaTerminou) {
                 condVendasConsecutivas.await();
             }
-            //QUANDO SAIR AQUI FOI PORQUE CHEGOU AO OBJETIVO OU O DIA TERMINO
+            //QUANDO SAIR AQUI FOI PORQUE CHEGOU AO OBJETIVO OU O DIA TERMINOU
             vendasConsecutivas.remove(pedidoVendaConsecutiva);
             return pedidoVendaConsecutiva.nomeProduto;
         } finally {
@@ -375,5 +438,64 @@ public class Database {
     }
 
 
+    //para a fase 7 de persistência dos dados, temos estas duas funcs e atualizamos a novoDia()
+
+    // Método auxiliar para inicializar a cache lru
+    // Não precisa de lock porque é chamado apenas nos construtores antes da publicação do objeto
+    //1º param da linkedhashMap  é a capacidade inicial, 2º é o load factor (0.75f é o default, se estiver 0.75 cheio da resize), 3º é true se queremos que se comporto como LRU
+    private void inicializarCache() {
+        this.memoriaCache = new LinkedHashMap<Integer, SerieTemporal>(S, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<Integer, SerieTemporal> eldest) {
+                if (size() > S) {
+                    //se ultrapassar S, salvamos a série temporal mais antiga em disco
+                    try {
+                        int diaRemover = eldest.getKey();
+                        SerieTemporal serieRemover = eldest.getValue();
+                        serieRemover.saveToFile(PATHDADOS + "serie_dia_" + diaRemover + ".dat");
+                        diasEmDisco.remove(diaRemover); //removemos dos dias em disco porque já salvamos
+                        //para debug verificar se salvou direito
+                        System.out.println("Série temporal do dia " + diaRemover + " salva em disco.");
+                        return true;
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                        return false;
+                    }
+                }
+                return false;
+            }
+        };
+    }
+
+    //função para obter série temporal de um dia, seja da cache ou do disco
+    private SerieTemporal obterSerieTemporal(int dia) throws IOException {
+        //verificamos se está na memória 
+        if (memoriaCache.containsKey(dia)) {
+            return memoriaCache.get(dia); //assim tbm atualiza a ordem de acesso
+        }
+            
+        //verificamos se está no hashmap antigo diasAnteriores (antes de termos persistência)
+        if (diasAnteriores.containsKey(dia)) {
+            SerieTemporal serie = diasAnteriores.get(dia);
+            memoriaCache.put(dia, serie); //adicionamos à cache
+            diasEmDisco.add(dia);
+            return serie;
+        }
+
+
+        //carregamos do disco 
+        String caminhoArquivo = PATHDADOS + "dia_" + dia + ".dat";
+        File arquivo = new File(caminhoArquivo);
+
+        if (!arquivo.exists()) {
+            return null; // Dia não existe
+        }
+
+        SerieTemporal serieCarregada = SerieTemporal.loadFromFile(caminhoArquivo, dia);
+        memoriaCache.put(dia, serieCarregada); //adicionamos à cache
+        diasEmDisco.add(dia);
+        return serieCarregada;
+    }
 }
+
 

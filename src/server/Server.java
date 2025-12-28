@@ -350,6 +350,19 @@ class ServerWorker implements Runnable {
 
 public class Server {
     public static void main(String[] args) throws IOException {
+        int D = 30; //número de dias a manter na base de dados, metemos como 30 por default
+        int S = 5; //número de séries temporais a manter em memória, metemos como 5 por default
+
+        if (args.length >= 1) { //se passar o primeiro argumento, é o D
+            D = Integer.parseInt(args[0]);
+        }
+        if (args.length >= 2) { //se passar o segundo argumento, é o S
+            S = Integer.parseInt(args[1]);
+        }
+        //debug para ter a certeza
+        System.err.println("Server iniciado com D=" + D + " e S=" + S);
+    
+
         ServerSocket serverSocket = new ServerSocket(12345);
         //print de debug da porta onde o servidor está a correr
         System.out.println("Server está na porta " + serverSocket.getLocalPort());
@@ -364,7 +377,7 @@ public class Server {
         System.out.println("Foram carregados " + userManager.getQtdUsers() + " users.");
 
         //criar a base de dados partilhada por todos os workers
-        Database database = new Database();
+        Database database = new Database(D, S);
         while (true) { 
             Socket clientSocket = serverSocket.accept();
             //print para verificar que houve uma nova conexão
