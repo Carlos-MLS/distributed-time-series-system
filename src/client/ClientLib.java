@@ -138,8 +138,6 @@ public class ClientLib {
         DataInputStream input = new DataInputStream(new ByteArrayInputStream(respostaBytes));
 
         byte status = input.readByte();
-        String mensagem = input.readUTF();
-        System.out.println(mensagem);
 
         return status == Message.STATUS_SUCCESSO;
     }
@@ -167,8 +165,6 @@ public class ClientLib {
         DataInputStream input = new DataInputStream(new ByteArrayInputStream(respostaBytes));
 
         byte status = input.readByte();
-        String mensagem = input.readUTF();
-        System.out.println(mensagem);
 
         return status == Message.STATUS_SUCCESSO;
     }

@@ -114,7 +114,6 @@ class ServerWorker implements Runnable {
                     database.adicionarEvento(produto, quantidade, preco);
 
                     out.writeByte(protocol.Message.STATUS_SUCCESSO);
-                    out.writeUTF("Evento adicionado com sucesso");
                     out.flush();
                     taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }
@@ -132,7 +131,6 @@ class ServerWorker implements Runnable {
 
                     database.novoDia();
                     out.writeByte(protocol.Message.STATUS_SUCCESSO);
-                    out.writeUTF("Avançou para o próximo dia com sucesso");
                     out.flush();
                     taggedConn.send(tag, byteArrayOutputStream.toByteArray());
                 }

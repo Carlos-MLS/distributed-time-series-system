@@ -3360,5 +3360,342 @@ maximiza paralelismo mantendo corretude.
 
 
 ================================================================================
+9. AVALIAÇÃO DE DESEMPENHO
+================================================================================
+
+Conforme requisitado no enunciado, realizámos testes abrangentes para avaliar 
+o desempenho, escalabilidade e robustez do sistema. Os testes foram organizados 
+em quatro categorias distintas, cada uma focada em aspetos específicos do 
+comportamento do sistema sob diferentes condições de carga.
+
+
+9.1 Metodologia de Testes
+
+Implementámos um conjunto completo de testes automatizados em ClienteTestes.java,
+divididos em quatro secções:
+
+1. **Testes Funcionais:** Validação de todas as funcionalidades (Fases 1-7)
+2. **Testes de Performance:** Medição de throughput e latência
+3. **Testes de Escalabilidade:** Comportamento com múltiplos clientes e threads
+4. **Testes de Robustez:** Comportamento em condições adversas
+
+**Ambiente de Testes:**
+- Servidor: D=50 (50 dias mantidos), S=10 (10 séries em memória)
+- Hardware: Cpu Intel 13th gen i7-1360P x 16, gráficos integrados e 16gb ram
+- Sistema Operativo: Linux
+- JVM: OpenJDK 21
+
+**NOTA IMPORTANTE:** Os resultados apresentados foram obtidos com o servidor 
+configurado para D=50 e S=10. Valores diferentes de D e S podem produzir 
+resultados ligeiramente diferentes em alguns testes, especialmente:
+
+- **Teste 2 (Cache Miss):** Com S=10, após criar 20 dias, os primeiros 10 dias 
+  são evicted para disco, forçando leituras do disco. Com S=50, todos os dias 
+  permaneceriam em memória (cache hit). Este teste demonstra o comportamento do 
+  sistema quando o cache LRU precisa de carregar dados persistidos.
+  
+- **Testes de Persistência:** Valores maiores de S reduzem a frequência de 
+  evictions, afetando os tempos de gravação em disco.
+
+A configuração D=50 S=10 foi escolhida para demonstrar a gestão de memória 
+com cache limitado, cenário realista em produção onde D >> S. 
+
+
+9.2 Testes Funcionais - Validação Completa
+
+Antes dos testes de performance, validámos todas as funcionalidades implementadas:
+
+**Teste 1 - Persistência:**
+Criação de 20 dias com eventos, forçando o sistema a persistir dados em disco.
+Com S=10, os dias 0-9 são mantidos inicialmente em memória, mas após criar mais 
+10 dias (10-19), os primeiros começam a ser evicted (política LRU). Resultado: 
+20 dias gravados corretamente em disco.
+
+**Teste 2 - Leitura do Disco (Cache Miss):**
+Este teste valida o carregamento de dados persistidos. Após criar 20 dias e 
+fazer novoDia() 20 vezes, estamos no dia 20. Quando pedimos quantidade vendida 
+de "Produto0" nos últimos 15 dias:
+
+- **Intervalo consultado:** Dias 19, 18, 17... até dia 5 (últimos 15 dias)
+- **Localização de Produto0:** Apenas existe no dia 0
+- **Resultado esperado:** qtd=0 (correto, pois Produto0 não existe nos dias consultados)
+
+IMPORTANTE: Com S=10, este teste força leitura do disco porque os dias antigos 
+foram evicted. Com S=50, todos os ~20 dias estariam em cache, mas o resultado 
+final seria o mesmo (qtd=0), apenas sem aceder ao disco. O teste demonstra que 
+o sistema consegue consultar dias antigos mesmo quando não estão em memória.
+
+**Teste 3 - Agregações Múltiplas:**
+Validação de todas as operações de agregação (quantidade, volume, preço médio, 
+preço máximo) com dados distribuídos por múltiplos dias. Matemática verificada:
+- qtd=15 (10+5 unidades)
+- vol=14750.0 (10×1000 + 5×950)
+- médio=983.33 (14750/15)
+
+**Teste 4 - Barreiras Simultâneas:**
+Duas threads aguardam vendas simultâneas de "Laptop" e "Mouse". Uma terceira 
+thread adiciona os dois produtos, disparando a barreira. Resultado: true.
+
+**Teste 5 - Barreiras Consecutivas:**
+Uma thread aguarda 3 vendas consecutivas. Outra thread adiciona 3 vendas de 
+"Monitor" seguidas. Resultado: retorna "Monitor".
+
+**Teste 6 - Filtro de Eventos:**
+Consulta eventos de produtos específicos num intervalo de dias, validando a 
+serialização eficiente com dicionário de produtos (Fase 4).
+
+
+9.3 Testes de Performance
+
+**9.3.1 Inserção Massiva de Eventos**
+
+Testámos a capacidade do servidor de processar grandes volumes de eventos:
+
+```
+Teste: 10.000 eventos inseridos sequencialmente
+Resultado: Completado em ~280-300ms
+Throughput: ~35.000 eventos/segundo
+```
+
+Este resultado demonstra que o sistema consegue processar dezenas de milhares 
+de eventos por segundo, adequado para cenários de alta carga.
+
+**9.3.2 Persistência de Múltiplos Dias**
+
+Testámos a capacidade de persistir grandes volumes de dados:
+
+```
+Teste: 50 dias × 1.000 eventos = 50.000 eventos
+Resultado: Completado em 1.412ms
+Tempo médio por dia: 28.24ms
+```
+
+A persistência é eficiente, com cada dia (incluindo serialização e escrita 
+em disco) a demorar em média apenas 28ms. Isto valida a estratégia de 
+persistência da Fase 7.
+
+**9.3.3 Eficiência do Cache**
+
+Comparámos o desempenho de agregações com cache hit vs cache miss:
+
+```
+Cache HIT (100 operações):  Tempo médio ~0.1-0.2ms/operação
+Cache MISS (10 operações):  Tempo médio ~2-5ms/operação
+Rácio de speedup: 10-50x mais rápido com cache
+```
+
+Estes resultados confirmam a eficácia da estratégia de cache lazy (Fase 3):
+- Cache hit: Acesso direto ao HashMap (O(1))
+- Cache miss: Requer percorrer série temporal e agregar dados
+- O investimento em cache é claramente justificado
+
+
+9.4 Testes de Escalabilidade
+
+**9.4.1 Escalabilidade Multi-Cliente (Servidor Concorrente)**
+
+Testámos o comportamento do servidor com diferentes números de clientes 
+concorrentes, cada um executando 100 operações (50 inserções + 50 agregações):
+
+┌──────────┬───────────────┬──────────────┬─────────────────┐
+│ Clientes │ Throughput    │ Tempo Médio  │ Speedup         │
+│          │ (ops/segundo) │ por Cliente  │ (vs 1 cliente)  │
+├──────────┼───────────────┼──────────────┼─────────────────┤
+│    1     │   7.692       │   11ms       │   1.0x (base)   │
+│    5     │  35.714       │   12ms       │   4.6x          │
+│   10     │  71.428       │    9.5ms     │   9.3x          │
+│   20     │  60.606       │   15.5ms     │   7.9x          │
+└──────────┴───────────────┴──────────────┴─────────────────┘
+
+**Análise:**
+- **Escalabilidade quase linear até 10 clientes:** Speedup de 9.3x com 10 
+  clientes demonstra paralelismo eficiente. O sistema aproveita bem múltiplos 
+  cores do processador.
+  
+- **Ligeira degradação com 20 clientes:** O speedup reduz para 7.9x devido a:
+  1. Contenção nos locks da Database (acesso a estruturas partilhadas)
+  2. Overhead de context switching com muitas threads ServerWorker
+  3. Possível saturação de recursos (CPU, I/O)
+  
+- **Tempo médio por cliente mantém-se baixo:** Entre 9.5ms e 15.5ms, 
+  demonstrando que mesmo com 20 clientes, cada um é servido rapidamente.
+
+**Conclusão:** A estratégia de locks por estrutura (Database, SerieTemporal, 
+Produto) permite paralelismo significativo. Se existissem mais contenção, 
+o speedup seria muito inferior.
+
+
+**9.4.2 Cliente Multi-Threaded (Fase 6 - TaggedConnection)**
+
+Testámos um único cliente com 10 threads concorrentes, todas usando a MESMA 
+conexão TCP (multiplexação via TaggedConnection):
+
+```
+Teste: 1 cliente com 10 threads × 40 operações = 400 operações totais
+Resultado:
+  - Tempo total: 104ms
+  - Tempo médio por thread: 58.8ms
+  - Throughput: 3.846 ops/segundo
+  - ✓ Todas as 400 operações completaram com sucesso
+```
+
+**Análise:**
+- **TaggedConnection funcional:** Multiplexação de pedidos pela mesma socket 
+  funciona corretamente. Não houve race conditions nem corrupção de dados.
+  
+- **Throughput inferior ao multi-cliente:** Isto é esperado porque:
+  1. Gargalo na única socket (serialização de envios/receções)
+  2. Demultiplexer tem de distribuir respostas pelas threads certas
+  3. Lock no Demultiplexer para aceder Map<Tag, Queue>
+  
+- **Validação da Fase 6:** O facto de 400 operações completarem sem erros 
+  valida que:
+  - TaggedConnection.send() é thread-safe
+  - TaggedConnection.receive() bloqueia corretamente até resposta chegar
+  - Demultiplexer distribui respostas às threads corretas
+
+
+9.5 Testes de Robustez
+
+**9.5.1 Cliente Lento não Bloqueia Outros**
+
+Testámos se um cliente lento (que demora a processar respostas) afeta outros:
+
+```
+Cliente Lento: 10 operações com 500ms delay entre cada (total ~5 segundos)
+Cliente Normal: 100 operações executadas concorrentemente
+
+Resultado:
+  - Cliente normal completou 100 operações em 36ms
+  - Cliente lento completou 10 operações em ~5 segundos
+  - ✓ Cliente normal NÃO foi bloqueado
+```
+
+**Conclusão:** A arquitetura com uma ServerWorker thread por cliente garante 
+isolamento. Um cliente lento não afeta o desempenho de outros.
+
+
+**9.5.2 Desconexão Abrupta**
+
+Testámos o comportamento do servidor quando um cliente desconecta abruptamente:
+
+```
+Teste:
+  1. Cliente conecta, envia evento, desconecta SEM consumir resposta
+  2. Novo cliente conecta e faz operação
+
+Resultado:
+  - ✓ Servidor detetou desconexão (IOException na ServerWorker)
+  - ✓ ServerWorker terminou gracefully
+  - ✓ Servidor continua funcional para novos clientes
+```
+
+**Conclusão:** O tratamento de exceções no ServerWorker.run() garante que 
+desconexões não crasham o servidor.
+
+
+9.6 Análise de Decisões de Design vs Performance
+
+**9.6.1 Lock Granularity**
+
+Decisão: Um lock na Database, um por SerieTemporal, um por Produto.
+
+**Impacto:** 
+- ✅ Permite paralelismo: Múltiplos clientes podem processar séries diferentes
+- ✅ Speedup 9.3x com 10 clientes valida esta decisão
+- ⚠️ Contenção na Database limita escalabilidade acima de 10-20 clientes
+
+**Alternativas consideradas:**
+- Lock global: Seria mais simples mas mataria paralelismo
+- Lock-free com ConcurrentHashMap: Violaria requisitos do enunciado
+
+
+**9.6.2 Cache Lazy (On-Demand)**
+
+Decisão: Agregar dados e fazer cache apenas quando pedidos.
+
+**Impacto:**
+- ✅ Cache hit 10-50x mais rápido que cache miss
+- ✅ Evita computação desnecessária (produtos nunca consultados)
+- ✅ Memória usada apenas para dados realmente acedidos
+
+**Trade-off:** Primeira consulta é mais lenta (cache miss), mas consultas 
+subsequentes são extremamente rápidas.
+
+
+**9.6.3 Persistência com LRU Cache (Fase 7)**
+
+Decisão: Manter S séries em memória, evict LRU quando exceder.
+
+**Impacto:**
+- ✅ 28.24ms por dia para persistir valida eficiência
+- ✅ Sistema funciona com D >> S (testado com D=50, S=10)
+- ✅ Streaming permite agregar dados sem carregar tudo em memória
+
+**Alternativa:** Manter tudo em memória seria mais rápido mas violaria 
+requisitos da Fase 7.
+
+
+**9.6.4 TaggedConnection (Fase 6)**
+
+Decisão: Multiplexar pedidos de múltiplas threads numa única socket.
+
+**Impacto:**
+- ✅ Validado: 400 operações concorrentes sem erros
+- ⚠️ Throughput inferior a múltiplos clientes (gargalo na socket)
+- ✅ Essencial para suportar cliente multi-threaded conforme enunciado
+
+**Trade-off:** Complexidade adicional (Demultiplexer, tags) mas necessário 
+para cumprir requisito da Fase 6.
+
+
+9.7 Limitações e Melhorias Futuras
+
+**Limitações Identificadas:**
+1. **Escalabilidade limitada acima de 20 clientes:** Contenção na Database 
+   começa a degradar performance. Solução: Sharding por produto ou dia.
+   
+2. **Persistência síncrona:** saveToFile() bloqueia durante gravação. 
+   Solução: Thread pool para I/O assíncrono.
+   
+3. **Socket única no cliente MT:** Gargalo para múltiplas threads. 
+   Solução: Pool de conexões (mas violaria requisito "única conexão").
+
+**Melhorias Implementáveis:**
+- **Read-write locks:** Usar ReentrantReadWriteLock para permitir múltiplas 
+  leituras concorrentes (ex: agregações) sem bloquear.
+  
+- **Particionamento de dados:** Dividir Database em múltiplas instâncias por 
+  produto ou intervalo de dias.
+  
+- **Compressão:** GZIP nos ficheiros .dat reduziria espaço em disco.
+
+
+9.8 Conclusão da Avaliação
+
+Os testes demonstram que o sistema:
+
+✅ **Funciona corretamente** em todas as 7 fases implementadas
+
+✅ **Escala eficientemente** até 10 clientes concorrentes (speedup 9.3x)
+
+✅ **É robusto** face a clientes lentos e desconexões abruptas
+
+✅ **Valida decisões de design:**
+   - Cache lazy reduz latência em 10-50x para consultas repetidas
+   - Persistência LRU permite trabalhar com D >> S
+   - TaggedConnection suporta cliente multi-threaded conforme requisitado
+
+⚠️ **Limitações identificadas:**
+   - Contenção na Database limita escalabilidade acima de 20 clientes
+   - Socket única é gargalo para cliente com muitas threads
+
+**Reflexão:** As decisões tomadas ao longo do projeto (granularidade de locks, 
+cache lazy, LRU, TaggedConnection) equilibram bem os requisitos de corretude, 
+performance e simplicidade. Os resultados quantitativos validam estas decisões 
+e identificam pontos de melhoria futura.
+
+
+================================================================================
 FIM DO RELATÓRIO - FASE 7 COMPLETA
 ================================================================================
