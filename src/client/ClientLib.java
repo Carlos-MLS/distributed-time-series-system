@@ -16,63 +16,82 @@ import protocol.Message;
 
 
 public class ClientLib {
+    // faz routing de mensagens para múltiplas threads (Fase 6)
+    // tem uma thread leitora dedicada que recebe do servidor e distribui por tags
+    // permite que várias threads cliente façam pedidos concorrentemente na mesma socket
     private Demultiplexer demultiplexer;
+    
+    // Contador de tags para identificar pedidos uniquely
+    // Cada pedido recebe tag sequencial e servidor responde com mesma tag
     private int tagNumber = 0;
+    
+    //lock para gerar tags thread-safe (múltiplas threads podem pedir tags concorrentemente)
     private ReentrantLock tagLock = new ReentrantLock();
 
-    //Construtor vazio
+    // Construtor vazio
     public ClientLib() {
         this.demultiplexer = null;
     }
 
-    //Metodo construtor que cria a socket e os streams de input e output, é chamado no clientInterativo
+    // estabelece conexão TCP com servidor
+    // cria socket -> TaggedConnection -> Demultiplexer -> inicia thread leitora
+    // parâmetros recebidos da aplicação cliente (ex: ClienteInterativo)
     public ClientLib(String host, int port) throws IOException {
-        Socket socket = new Socket(host, port);
-        TaggedConnection conn = new TaggedConnection(socket);
-        this.demultiplexer = new Demultiplexer(conn);
-        this.demultiplexer.start(); //incia a thread para ler
+        Socket socket = new Socket(host, port); // Criar conexão TCP
+        TaggedConnection conn = new TaggedConnection(socket); // Camada de tagging
+        this.demultiplexer = new Demultiplexer(conn); // Camada de multiplexing
+        this.demultiplexer.start(); // Iniciar thread leitora que fica a receber do servidor
     }
 
-    //agr uma func para gerar as tags
+    // Gera a próxima tag única (thread-safe)
     private int getTagNumber() {
         tagLock.lock();
         try {
-            return tagNumber++;
+            return tagNumber++; // Incrementa e retorna tag única
         } finally {
             tagLock.unlock();
         }
     }
 
 
-    //Envia para o servidor o pedido de registo de um novo user
+    // Operação REGISTAR: criar nova conta de utilizador no servidor
+    // Retorna true se registo bem-sucedido, false se username já existe
     public boolean registar(String username, String password) throws IOException {
+        //Obter tag única para este pedido (thread-safe)
         int tag = getTagNumber();
 
+        //Serializar pedido em formato binário
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
         DataOutputStream output = new DataOutputStream(byteArrayOutputStream);
 
-        output.writeByte(Message.REGISTAR);
-        output.writeUTF(username);
-        output.writeUTF(password);
+        // Protocolo: [byte operacao][UTF username][UTF password]
+        output.writeByte(Message.REGISTAR); // 1 = operação de registo
+        output.writeUTF(username); // Enviar username como string UTF
+        output.writeUTF(password); // Enviar password como string UTF
         output.flush();
 
+        //Enviar pedido ao servidor via demultiplexer
         demultiplexer.send(tag, byteArrayOutputStream.toByteArray());
 
+        // Aguarda resposta do servidor (bloqueia até receber mensagem com esta tag)
+        // o demultiplexer garante que recebemos a resposta DESTE pedido específico
         byte[] respostaBytes = null;
         try {
-            respostaBytes = demultiplexer.receive(tag);
+            respostaBytes = demultiplexer.receive(tag); // Bloqueia até o servidor responder
         } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return false;
+            Thread.currentThread().interrupt(); //flag de interrupção
+            return false; // Pedido cancelado
         }
 
+        //Deserializar resposta do servidor
         DataInputStream input = new DataInputStream(new ByteArrayInputStream(respostaBytes));
 
-        byte status = input.readByte();
-        String mensagem = input.readUTF();
-        System.out.println(mensagem);
+        // Protocolo resposta: [byte status][UTF mensagem]
+        byte status = input.readByte(); // 0=sucesso, 1=falhou
+        String mensagem = input.readUTF(); // Mensagem explicativa do servidor
+        System.out.println(mensagem); // Mostrar ao utilizador
 
-        return status == Message.STATUS_SUCCESSO;
+        return status == Message.STATUS_SUCCESSO; // true se status=0
     }
 
     //Envia para o servidor o pedido de login de um user
