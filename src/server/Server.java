@@ -238,6 +238,10 @@ class ServerWorker implements Runnable {
                         continue;
                     }
                     
+                    // Exemplo de INPUT recebido do cliente:
+                    // Bytes: [9][0,0,0,2][0,6,L,a,p,t,o,p][0,5,M,o,u,s,e][0,0,0,1]
+                    //        ^tipo ^2 produtos ^"Laptop" ^"Mouse" ^dia=1
+                    
                     // Ler parâmetros do pedido enviados pelo cliente:
                     int numProdutos = in.readInt(); // Número de produtos no filtro (enviado primeiro pelo cliente)
                     Set<String> produtos= new HashSet<>(); // Conjunto de produtos para filtrar
@@ -264,6 +268,15 @@ class ServerWorker implements Runnable {
 
                     // Protocolo de resposta em 3 partes:
                     out.writeByte(Message.STATUS_SUCCESSO);
+                    
+                    // Exemplo de OUTPUT enviado ao cliente (3 eventos: 2 Laptop, 1 Mouse):
+                    // Dicionário: ["Laptop", "Mouse"] -> índices [0, 1]
+                    // Eventos: Laptop(10un,999€,ts1), Mouse(5un,25€,ts2), Laptop(2un,899€,ts3)
+                    //
+                    // Bytes: [1] [0,0,0,2] [0,6,L,a,p,t,o,p] [0,5,M,o,u,s,e]
+                    //        ^ok ^2 únicos ^"Laptop"          ^"Mouse"
+                    //        [0,0,0,3] [0,0,0,0][0,0,0,10][999.0][ts1] [0,0,0,1][0,0,0,5][25.0][ts2] [0,0,0,0][0,0,0,2][899.0][ts3]
+                    //        ^3 eventos ^idx=0  ^qtd=10   ^preço ^time ^idx=1  ^qtd=5   ^preço ^time ^idx=0  ^qtd=2   ^preço ^time
                     
                     // 1 Enviamos o dicionário de produtos
                     out.writeInt(produtosUnicos.size()); // Número de produtos únicos

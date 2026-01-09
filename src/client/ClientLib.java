@@ -333,6 +333,10 @@ public class ClientLib {
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
         DataOutputStream output = new DataOutputStream(byteArrayOutputStream);
 
+        // Exemplo de OUTPUT enviado ao server:
+        // Se enviarmos produtos={"Laptop", "Mouse"} e dia=1
+        // Bytes: [9] [0,0,0,2] [0,6,L,a,p,t,o,p] [0,5,M,o,u,s,e] [0,0,0,1]
+        //        ^tipo ^numProd ^"Laptop"(UTF)    ^"Mouse"(UTF)  ^dia
         output.writeByte(Message.FILTRAR_EVENTOS);
         output.writeInt(produtos.size());
         for (String produto : produtos) {
@@ -358,6 +362,20 @@ public class ClientLib {
             return new ArrayList<>();
         }
 
+        // Exemplo de input recebido do server (com dicionário):
+        // Dicionário: 2 produtos -> ["Laptop", "Mouse"]
+        // 3 eventos: Laptop(10un,999€), Mouse(5un,25€), Laptop(2un,899€)
+        // 
+        // Bytes: [1] [0,0,0,2] [0,6,L,a,p,t,o,p] [0,5,M,o,u,s,e] [0,0,0,3]
+        //        ^ok ^2 produtos  ^"Laptop"(UTF)    ^"Mouse"(UTF)  ^3 eventos
+        //        [0,0,0,0][0,0,0,10][999.0 em 8bytes][timestamp 8bytes]  <- evento1: índice0=Laptop
+        //        [0,0,0,1][0,0,0,5] [25.0 em 8bytes] [timestamp 8bytes]  <- evento2: índice1=Mouse  
+        //        [0,0,0,0][0,0,0,2] [899.0 em 8bytes][timestamp 8bytes]  <- evento3: índice0=Laptop
+        //
+        // Sem dicionário: "Laptop"(8b) + "Mouse"(7b) + "Laptop"(8b) = 23 bytes
+        // com dicionário: "Laptop"(8b) + "Mouse"(7b) + 0(4b) + 1(4b) + 0(4b) = 27 bytes
+        // Mas com 100 eventos de Laptop: SEM=100×8=800b vs COM=8+100×4=408b
+        
         //lê a lista de eventos filtrados que o server enviou de volta
         int numProdutos = input.readInt();
         String[] arrayProdutos = new String[numProdutos];

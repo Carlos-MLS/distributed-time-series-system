@@ -7,6 +7,7 @@ Exemplo: java -cp src server.Server 50 10
 
 Executar Cliente Interativo -
 java -cp src apps.ClienteInterativo
+(Após login, permite adicionar eventos, consultar agregações, filtrar eventos e usar barreiras)
 
 Executar Cliente Testes (com opções):
 java -cp src apps.ClienteTestes [opção]

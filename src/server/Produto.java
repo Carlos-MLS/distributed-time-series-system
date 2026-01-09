@@ -6,12 +6,15 @@ import java.util.concurrent.locks.ReentrantLock;
 
 
 class Produto {
-    //Serve para calcular estatísticas de um produto específico e guarda na cache os resultados 
-    //n é necessariamente um produto físico 
+    // Agregações Lazy com Cache
+    // Cada produto mantém uma cache própria das suas agregações (quantidade, volume,  epreço médio/máximo)
+    // A Cache é calculada on-demand na primeira consulta e reutilizada em consultas subsequentes que fazemos depois
+    // A cache é invalidada quando um novo dia começav ou o evento é adicionado ao dia atual
 
-    private String nome; //id do produto
-    private HashMap<String, Double> cache = new HashMap<>(); // value é dias
-    private ReentrantLock lockProduto = new ReentrantLock();
+    private String nome; // Identificador único do produto (ex: "Laptop", "Mouse")
+    private HashMap<String, Double> cache = new HashMap<>(); // Chave: "tipo:dias" (ex: "quantidade:15")
+                                                              // Valor: resultado agregado calculado
+    private ReentrantLock lockProduto = new ReentrantLock(); // Lock para acesso concorrente à cache
     
     public Produto(String nome) {
         this.nome = nome;

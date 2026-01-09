@@ -155,35 +155,41 @@ public class Database {
                 produtos.get(produto).invalidarCache();
             }
 
-            //agora temos de adicionar aqui para a fase 5  
-            //vendas simultaneas
+            // Notificação de Barreiras, temos de verificar se vendas desbloqueiam threads à espera
+            
+            // Vendas Simultâneas, onde temos de  marcar produtos vendidos e acordar threads quando ambos forem vendidos
             for(VendaSimultanea vs : vendasSimultaneas) {
                     if(produto.equals(vs.p1)) {
-                        vs.p1Vendido = true;
+                        vs.p1Vendido = true; // Marca que p1 foi vendido hoje
                     }
                     if(produto.equals(vs.p2)) {
-                        vs.p2Vendido = true;
+                        vs.p2Vendido = true; // Marca que p2 foi vendido hoje
                     }
+                    // Quando ambos os produtos foram vendidos no mesmo dia, desbloqueia todas as threads à espera
                     if(vs.p1Vendido && vs.p2Vendido) {
                         vs.p1ep2Vendidos = true;
-                        condVendasSimultaneas.signalAll(); //quando ambos vendidos acorda todos
+                        // Usamos signalAll() porque podem haver múltiplas threads à espera da mesma barreira
+                        // (vários clientes podem estar bloqueados aguardando os mesmos 2 produtos)
+                        condVendasSimultaneas.signalAll();
                     }
             }
 
-            //para vendas consecutivas
+            // Vendas Consecutivas: contar vendas seguidas do mesmo produto
             if(produto.equals(ultimoProdutoVendido)) {
-                counterConsecutivo++;
+                counterConsecutivo++; // Mesmo produto que a última venda, incrementa contador
             } else {
-                ultimoProdutoVendido = produto;
+                ultimoProdutoVendido = produto; // Produto diferente, reinicia a sequência
                 counterConsecutivo = 1;
             }
 
-            //verifica se algum pedido de vendas consecutivas chegou ao objetivo
+            // Verifica se alguma barreira de vendas consecutivas atingiu o objetivo
             for(VendaConsecutiva vc : vendasConsecutivas) {
                 if(counterConsecutivo >= vc.quantidadeVendasConsecutivas) {
-                        vc.nomeProduto = produto;
+                        vc.nomeProduto = produto; // Guarda qual produto atingiu o objetivo
                         vc.chegouObjetivo = true;
-                        condVendasConsecutivas.signalAll(); //acorda todos
+                        // Acordamos todas as threads à espera desta barreira
+                        // (várias threads podem estar bloqueadas a aguardar n vendas consecutivas)
+                        condVendasConsecutivas.signalAll();
                 }
             }
         
@@ -192,35 +198,41 @@ public class Database {
         }
     }
     
-    //Avança para o próximo dia, e grava o dia atual em disco (devido à fase 7)
+    // Avança para o próximo dia, persiste  o dia atual e gere a memória (LRU)
     public void novoDia() {
         lock.lock();
         try {
-            // Persistir dia atual antes de avançar
+            // 1. Persistimos o  dia atual em disco antes de avançarmos 
             String caminhoArquivo = PATHDADOS + "dia_" + diaAtual + ".dat";
-            serieTemporal.saveToFile(caminhoArquivo);
+            serieTemporal.saveToFile(caminhoArquivo); // Guarda a série completa no ficheiro .dat
             
-            // Adicionar à cache de memória 
-            diasAnteriores.put(diaAtual, serieTemporal);
-            memoriaCache.put(diaAtual, serieTemporal);
-            diasEmDisco.add(diaAtual);
+            // 2. Adicionamos o dia atual às estruturas de dias anteriores
+            diasAnteriores.put(diaAtual, serieTemporal); // HashMap normal (todos os dias)
+            memoriaCache.put(diaAtual, serieTemporal);    // LinkedHashMap LRU (máximo S dias)
+            diasEmDisco.add(diaAtual);                     // Marca que este dia está persistido
             
-            // Invalidar cache de produtos já que há um novo dia
+            // A  memoriaCache usa LinkedHashMap com removeEldestEntry sobrescrito
+            // Quando ultrapassar S entradas, remove automaticamente o dia mais antigo (LRU)
+            // Isso mantém no máximo S séries em memória mesmo com D >> S
+            
+            // 3. Invalidar cache de agregações porque temos novo dia anterior
+            // A Cache só é válida enquanto o connjunto de de dos  dias anteriores não muda
             for (Produto p : produtos.values()) {
-                p.invalidarCache();
+                p.invalidarCache(); // Força o recálculo nas próximas agregações
             }
             
-            //limpámos as vendas da fase 5
+            // 4. Limpar barreiras - o novo dia é um recomeço, vendas anteriores não contam
             vendasSimultaneas.clear();
             vendasConsecutivas.clear();
             ultimoProdutoVendido = null;
             counterConsecutivo = 0;
             
-            // Avançamos para um novo dia
+            // 5. Avançar para o novo dia e criamos uma série vazia
             diaAtual++;
             serieTemporal = new SerieTemporal(diaAtual);
             
-            //acordamos as threads à espera
+            // 6. Acordar as threads bloqueadas em barreiras, ou seja o dia terminou sem atingir o objetivo
+            // Threads retornam false/null indicando que a barreira não foi satisfeita
             condVendasConsecutivas.signalAll();
             condVendasSimultaneas.signalAll();
         } catch (IOException e) {

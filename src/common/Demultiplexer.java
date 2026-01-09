@@ -19,14 +19,21 @@ public class Demultiplexer implements AutoCloseable {
     Lock lock = new ReentrantLock();
     
     private IOException exception = null;
-    private Map<Integer, Entry> entries = new HashMap<Integer, Entry>(); //mapa de tags para filas de mensagens
+    // Mapa de tags para filas de mensagens, e permite múltiplas threads concorrentes
+    // Cada tag representa um pedido/resposta independente, podemos ter várias threads à espera da mesma tag
+    private Map<Integer, Entry> entries = new HashMap<Integer, Entry>();
 
+    // Entry representa a  fila de mensagenss e a sincronização para uma tag específica
+    // Implementa padrão produtor-consumidor: thread leitora produz, threads cliente consomem
     private class Entry {
-        Deque<byte[]> queue = new ArrayDeque<>();
-        Condition condition = lock.newCondition();
-        int waiters = 0; // número de threads à espera 
+        Deque<byte[]> queue = new ArrayDeque<>();  // Fila FIFO de respostas recebidas para esta tag
+        Condition condition = lock.newCondition();  // Condition para acordar threads à espera desta tag
+        int waiters = 0; // Número de threads cliente bloqueadas à espera de resposta com esta tag
+                         // Usado para saber quando podemos remover a Entry do mapa (quando waiters==0 e queue vazia)
     }
 
+    // Obtém ou cria Entry para uma tag
+    // Se múltiplas threads pedirem a mesma tag, partilham a mesma Entry e fila
     private Entry getEntry(int tag) {
         Entry entry = entries.get(tag);
         if (entry == null) {
@@ -41,6 +48,8 @@ public class Demultiplexer implements AutoCloseable {
     }
 
     //Thread que fica a receber mensagens e a colocá-las na fila correta
+    // Recebe frame do socket, extrai tag, coloca dados na fila correta (Entry)
+    // signalAll() acorda todas as threads à espera desta tag, mas só a primeira consome a mensagem
     public void start() {
         Thread t = new Thread(() -> {
             try {
@@ -56,6 +65,7 @@ public class Demultiplexer implements AutoCloseable {
                     }
                 }
             } catch (IOException e) {
+                // Socket fechou, propagar erro para todas as threads bloqueadas
                 lock.lock();
                 try {
                     exception = e;
