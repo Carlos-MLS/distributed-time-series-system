@@ -1,6 +1,8 @@
-# Trabalho Pratico - Sistemas Distribuidos
+# Sistema Distribuído de Séries Temporais
 
-Projeto academico de Sistemas Distribuidos, implementado em Java, com arquitetura cliente-servidor e foco em concorrencia, comunicacao em rede e processamento de eventos.
+Projeto académico da unidade curricular de **Sistemas Distribuídos**,
+implementado em Java, com arquitetura cliente-servidor e foco em concorrência,
+comunicação em rede e processamento de eventos.
 
 ## Objetivos do projeto
 
